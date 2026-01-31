@@ -1,5 +1,3 @@
-# Create supervisor.py
-cat << 'EOF' > supervisor.py
 #!/usr/bin/env python3
 import subprocess
 import sys
