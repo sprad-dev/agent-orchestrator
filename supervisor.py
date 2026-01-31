@@ -91,4 +91,3 @@ if __name__ == "__main__":
     
     loop = RalphLoop(args.agent, args.verify, MAX_RETRIES)
     loop.execute(args.task)
-EOF
