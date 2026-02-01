@@ -4,9 +4,13 @@ import sys
 import os
 import argparse
 import shlex
-import json
-import re
 from pathlib import Path
+
+from src.context import (
+    parse_context_files,
+    get_default_context_files,
+    build_static_context,
+)
 
 # --- DEFAULTS ---
 # You can override these via CLI args later if needed
@@ -24,117 +28,6 @@ class RalphLoop:
         self.test_model = test_model
         self.impl_model = impl_model
         self.two_phase_mode = test_model is not None and impl_model is not None
-
-    def parse_context_files(self, task):
-        """Parse context_files from task specification.
-        
-        Supports two formats:
-        1. JSON-like: context_files: ["file1.py", "file2.py"]
-        2. Inline marker: [context: file1.py, file2.py]
-        
-        Returns list of file paths or None if not specified.
-        """
-        # Try JSON-like format
-        match = re.search(r'context_files:\s*\[([^\]]+)\]', task)
-        if match:
-            files_str = match.group(1)
-            # Parse as JSON array or comma-separated
-            try:
-                files = json.loads('[' + files_str + ']')
-                return [f.strip().strip('"\'') for f in files if f.strip()]
-            except json.JSONDecodeError:
-                # Fallback to comma-separated
-                return [f.strip().strip('"\'') for f in files_str.split(',') if f.strip()]
-        
-        # Try inline marker format
-        match = re.search(r'\[context:\s*([^\]]+)\]', task)
-        if match:
-            files_str = match.group(1)
-            return [f.strip() for f in files_str.split(',') if f.strip()]
-        
-        return None
-
-    def get_default_context_files(self, task):
-        """Infer context files from task description.
-        
-        Looks for Python file mentions and includes corresponding test files.
-        Returns list of file paths.
-        """
-        files = []
-        
-        # Find Python file mentions in task
-        py_files = re.findall(r'\b(\w+\.py)\b', task)
-        for f in py_files:
-            if os.path.exists(f):
-                files.append(f)
-                # Add corresponding test file if it exists
-                test_file = f'test_{f}'
-                if os.path.exists(test_file):
-                    files.append(test_file)
-        
-        return list(set(files))  # Remove duplicates
-
-    def build_context(self, files):
-        """Load specified files and build context string.
-        
-        Returns formatted context with file contents.
-        """
-        if not files:
-            return ""
-        
-        context_parts = ["\n=== CONTEXT FILES ===\n"]
-        
-        for filepath in files:
-            if not os.path.exists(filepath):
-                context_parts.append(f"\n--- {filepath} (NOT FOUND) ---\n")
-                continue
-            
-            try:
-                with open(filepath, 'r') as f:
-                    content = f.read()
-                context_parts.append(f"\n--- {filepath} ---\n{content}\n")
-            except Exception as e:
-                context_parts.append(f"\n--- {filepath} (ERROR: {e}) ---\n")
-        
-        context_parts.append("=== END CONTEXT ===\n")
-        return ''.join(context_parts)
-    
-    def build_static_context(self, context_files):
-        """Build static context block optimized for prompt caching.
-        
-        CACHING STRATEGY:
-        Claude's automatic prompt caching caches long prefixes. By placing
-        static content (repo files, docs) at the beginning, subsequent
-        retries can reuse the cached context at ~90% cost reduction.
-        
-        This method returns the static portion that should appear first
-        in prompts to maximize cache hit rates.
-        
-        Returns: tuple of (static_context_str, context_size_bytes)
-        """
-        if not context_files:
-            return "", 0
-        
-        static_parts = []
-        
-        # Repository structure/context files - these are stable across retries
-        file_context = self.build_context(context_files)
-        if file_context:
-            static_parts.append(file_context)
-        
-        # General coding guidelines (static)
-        static_parts.append("""
-=== GENERAL GUIDELINES ===
-- Write clean, maintainable code
-- Follow existing code style and conventions
-- Add appropriate error handling
-- Write clear comments where needed
-- Ensure all changes are production-ready
-=== END GUIDELINES ===
-""")
-        
-        static_content = ''.join(static_parts)
-        return static_content, len(static_content.encode('utf-8'))
 
     def run_shell(self, cmd, ignore_error=False):
         """Runs a command in the CURRENT working directory."""
@@ -172,7 +65,7 @@ class RalphLoop:
         print(f"\n=== 🧠 TEST GENERATION PHASE (Model: {self.test_model}) ===")
         
         # Build static context optimized for caching
-        static_context, context_size = self.build_static_context(context_files)
+        static_context, context_size = build_static_context(context_files)
         print(f" [Cache] 📦 Static context: {context_size:,} bytes (cacheable)")
         
         # Construct test generation prompt with STATIC content first
@@ -234,7 +127,7 @@ Generate the test file(s) now."""
         print(" [X] Tests failed (expected). Error output captured.")
         
         # Build static context optimized for caching
-        static_context, context_size = self.build_static_context(context_files)
+        static_context, context_size = build_static_context(context_files)
         print(f" [Cache] 📦 Static context: {context_size:,} bytes (cacheable)")
         
         # Construct implementation prompt with STATIC content first
@@ -296,9 +189,9 @@ Implement the code now."""
         print(f"Implementation Model: {self.impl_model}")
         
         # Parse context files from task
-        context_files = self.parse_context_files(task)
+        context_files = parse_context_files(task)
         if context_files is None:
-            context_files = self.get_default_context_files(task)
+            context_files = get_default_context_files(task)
         
         if context_files:
             print(f" [Context] 📁 Loading {len(context_files)} file(s): {', '.join(context_files)}")
@@ -339,10 +232,10 @@ Implement the code now."""
         print(f"Escalation Chain: {' → '.join(self.models)}")
 
         # Parse context files from task
-        context_files = self.parse_context_files(task)
+        context_files = parse_context_files(task)
         if context_files is None:
             # Use default context inference
-            context_files = self.get_default_context_files(task)
+            context_files = get_default_context_files(task)
         
         if context_files:
             print(f" [Context] 📁 Loading {len(context_files)} file(s): {', '.join(context_files)}")
@@ -350,7 +243,7 @@ Implement the code now."""
             print(f" [Context] ⚠️  No context files specified or detected")
 
         # Build static context once for caching optimization
-        static_context, context_size = self.build_static_context(context_files)
+        static_context, context_size = build_static_context(context_files)
         if context_size > 0:
             print(f" [Cache] 📦 Static context: {context_size:,} bytes (cacheable)")
 

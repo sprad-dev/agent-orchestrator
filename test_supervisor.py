@@ -4,6 +4,12 @@ import tempfile
 import os
 from pathlib import Path
 from supervisor import RalphLoop
+from src.context import (
+    parse_context_files,
+    get_default_context_files,
+    build_context,
+    build_static_context,
+)
 
 
 class TestEscalationProtocol(unittest.TestCase):
@@ -46,19 +52,19 @@ class TestContextPruning(unittest.TestCase):
     def test_parse_context_files_json_format(self):
         """Test parsing context_files in JSON format."""
         task = 'Fix bug context_files: ["file1.py", "file2.py"]'
-        files = self.loop.parse_context_files(task)
+        files = parse_context_files(task)
         self.assertEqual(files, ["file1.py", "file2.py"])
 
     def test_parse_context_files_inline_format(self):
         """Test parsing context_files in inline format."""
         task = "Fix bug [context: file1.py, file2.py]"
-        files = self.loop.parse_context_files(task)
+        files = parse_context_files(task)
         self.assertEqual(files, ["file1.py", "file2.py"])
 
     def test_parse_context_files_none(self):
         """Test when no context_files specified."""
         task = "Fix the bug in the code"
-        files = self.loop.parse_context_files(task)
+        files = parse_context_files(task)
         self.assertIsNone(files)
 
     def test_get_default_context_files(self):
@@ -68,7 +74,7 @@ class TestContextPruning(unittest.TestCase):
         Path("test_calculator.py").touch()
         
         task = "Fix bug in calculator.py"
-        files = self.loop.get_default_context_files(task)
+        files = get_default_context_files(task)
         
         self.assertIn("calculator.py", files)
         self.assertIn("test_calculator.py", files)
@@ -78,7 +84,7 @@ class TestContextPruning(unittest.TestCase):
         Path("utils.py").touch()
         
         task = "Fix bug in utils.py"
-        files = self.loop.get_default_context_files(task)
+        files = get_default_context_files(task)
         
         self.assertEqual(files, ["utils.py"])
 
@@ -88,7 +94,7 @@ class TestContextPruning(unittest.TestCase):
         test_file = Path("test.py")
         test_file.write_text("def foo():\n    pass\n")
         
-        context = self.loop.build_context(["test.py"])
+        context = build_context(["test.py"])
         
         self.assertIn("=== CONTEXT FILES ===", context)
         self.assertIn("--- test.py ---", context)
@@ -100,7 +106,7 @@ class TestContextPruning(unittest.TestCase):
         Path("file1.py").write_text("# File 1\n")
         Path("file2.py").write_text("# File 2\n")
         
-        context = self.loop.build_context(["file1.py", "file2.py"])
+        context = build_context(["file1.py", "file2.py"])
         
         self.assertIn("--- file1.py ---", context)
         self.assertIn("--- file2.py ---", context)
@@ -109,13 +115,13 @@ class TestContextPruning(unittest.TestCase):
 
     def test_build_context_missing_file(self):
         """Test building context with missing file."""
-        context = self.loop.build_context(["nonexistent.py"])
+        context = build_context(["nonexistent.py"])
         
         self.assertIn("nonexistent.py (NOT FOUND)", context)
 
     def test_build_context_empty_list(self):
         """Test building context with empty file list."""
-        context = self.loop.build_context([])
+        context = build_context([])
         self.assertEqual(context, "")
 
     def test_context_size_limit(self):
@@ -125,7 +131,7 @@ class TestContextPruning(unittest.TestCase):
             Path(f"file{i}.py").touch()
         
         task = "Fix bug in file1.py and file2.py"
-        files = self.loop.get_default_context_files(task)
+        files = get_default_context_files(task)
         
         # Should only detect mentioned files
         self.assertLessEqual(len(files), 10)
@@ -951,12 +957,12 @@ class TestErrorHandling(unittest.TestCase):
         
         # Valid JSON should parse
         task = 'Fix bug context_files: ["file1.py", "file2.py"]'
-        files = loop.parse_context_files(task)
+        files = parse_context_files(task)
         self.assertEqual(files, ["file1.py", "file2.py"])
         
         # Invalid JSON should fall back to comma-separated
         task = 'Fix bug context_files: [file1.py, file2.py, not-valid-json]'
-        files = loop.parse_context_files(task)
+        files = parse_context_files(task)
         self.assertEqual(files, ["file1.py", "file2.py", "not-valid-json"])
 
     def test_file_read_error_handling(self):
@@ -964,7 +970,7 @@ class TestErrorHandling(unittest.TestCase):
         loop = RalphLoop("echo {prompt}", "true", 1)
         
         # Test missing file
-        context = loop.build_context(["nonexistent.py"])
+        context = build_context(["nonexistent.py"])
         self.assertIn("nonexistent.py", context)
         self.assertIn("NOT FOUND", context)
         
@@ -974,7 +980,7 @@ class TestErrorHandling(unittest.TestCase):
         restricted_file.chmod(0o000)  # Remove all permissions
         
         try:
-            context = loop.build_context(["restricted.py"])
+            context = build_context(["restricted.py"])
             # Should handle the error gracefully
             self.assertIn("restricted.py", context)
             # Either shows error or succeeds (depends on OS permissions model)
@@ -1054,15 +1060,15 @@ exit 0
         loop = RalphLoop("echo {prompt}", "true", 1)
         
         # Empty list
-        context = loop.build_context([])
+        context = build_context([])
         self.assertEqual(context, "")
         
         # None or empty list returns empty static context
-        static_context, size = loop.build_static_context(None)
+        static_context, size = build_static_context(None)
         self.assertEqual(static_context, "")
         self.assertEqual(size, 0)
         
-        static_context, size = loop.build_static_context([])
+        static_context, size = build_static_context([])
         self.assertEqual(static_context, "")
         self.assertEqual(size, 0)
 
@@ -1071,15 +1077,15 @@ exit 0
         loop = RalphLoop("echo {prompt}", "true", 1)
         
         # No context specification
-        files = loop.parse_context_files("just a task with no context")
+        files = parse_context_files("just a task with no context")
         self.assertIsNone(files)
         
         # Empty brackets - regex won't match, returns None
-        files = loop.parse_context_files("task context_files: []")
+        files = parse_context_files("task context_files: []")
         self.assertIsNone(files)
         
         # Malformed brackets
-        files = loop.parse_context_files("task context_files: [")
+        files = parse_context_files("task context_files: [")
         self.assertIsNone(files)
 
 
