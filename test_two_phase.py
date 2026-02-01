@@ -481,6 +481,51 @@ class TestFullTwoPhaseWorkflow(unittest.TestCase):
         # Agent reachability should not be checked after git clean fails
         mock_check_agent.assert_not_called()
 
+    @patch('src.models.two_phase.check_git_clean')
+    @patch('src.models.two_phase.check_agent_reachable')
+    def test_precondition_exception_handling(
+        self,
+        mock_check_agent,
+        mock_check_git
+    ):
+        """Test that execution fails safely when precondition check raises exception."""
+        mock_check_git.side_effect = RuntimeError("Unexpected error in git check")
+
+        executor = TwoPhaseExecutor(
+            agent_cmd_template="claude {prompt}",
+            verify_cmd="pytest",
+            test_model="sonnet",
+            impl_model="haiku"
+        )
+        result = executor.execute("Create add function")
+
+        self.assertFalse(result)
+        # Subsequent checks should not run after exception
+        mock_check_agent.assert_not_called()
+
+    @patch('src.models.two_phase.check_git_clean')
+    @patch('src.models.two_phase.check_agent_reachable')
+    def test_precondition_invalid_return_type(
+        self,
+        mock_check_agent,
+        mock_check_git
+    ):
+        """Test that execution fails when precondition check returns invalid type."""
+        # Return a list instead of (bool, str) tuple
+        mock_check_git.return_value = ["Not", "a", "tuple"]
+
+        executor = TwoPhaseExecutor(
+            agent_cmd_template="claude {prompt}",
+            verify_cmd="pytest",
+            test_model="sonnet",
+            impl_model="haiku"
+        )
+        result = executor.execute("Create add function")
+
+        self.assertFalse(result)
+        # Subsequent checks should not run
+        mock_check_agent.assert_not_called()
+
 
 class TestContextHandling(unittest.TestCase):
     """Tests for context file handling in two-phase mode."""

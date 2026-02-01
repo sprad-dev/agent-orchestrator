@@ -52,28 +52,52 @@ class EscalationExecutor:
 
         # Preconditions
         print("\n [Preconditions] Running safety checks...")
-        
+
         # Check 1: Git working tree is clean
-        passed, message = check_git_clean()
-        if not passed:
-            print(f" [X] Git clean check failed: {message}")
-            print("     Commit or stash changes before running supervisor.")
+        try:
+            result = check_git_clean()
+            if not isinstance(result, tuple) or len(result) != 2:
+                print(f" [X] CRITICAL: check_git_clean returned invalid type: {type(result)}")
+                return False
+            passed, message = result
+            if not passed:
+                print(f" [X] Git clean check failed: {message}")
+                print("     Commit or stash changes before running supervisor.")
+                return False
+            print(f" [✓] {message}")
+        except Exception as e:
+            print(f" [X] CRITICAL: check_git_clean raised exception: {e}")
             return False
-        print(f" [✓] {message}")
-        
+
         # Check 2: Agent is reachable
-        passed, message = check_agent_reachable(self.agent_cmd_template)
-        if not passed:
-            print(f" [X] Agent reachable check failed: {message}")
+        try:
+            result = check_agent_reachable(self.agent_cmd_template)
+            if not isinstance(result, tuple) or len(result) != 2:
+                print(f" [X] CRITICAL: check_agent_reachable returned invalid type: {type(result)}")
+                return False
+            passed, message = result
+            if not passed:
+                print(f" [X] Agent reachable check failed: {message}")
+                return False
+            print(f" [✓] {message}")
+        except Exception as e:
+            print(f" [X] CRITICAL: check_agent_reachable raised exception: {e}")
             return False
-        print(f" [✓] {message}")
-        
+
         # Check 3: Tests exist and are collectible
-        passed, message = check_tests_exist(self.verify_cmd)
-        if not passed:
-            print(f" [X] Tests exist check failed: {message}")
+        try:
+            result = check_tests_exist(self.verify_cmd)
+            if not isinstance(result, tuple) or len(result) != 2:
+                print(f" [X] CRITICAL: check_tests_exist returned invalid type: {type(result)}")
+                return False
+            passed, message = result
+            if not passed:
+                print(f" [X] Tests exist check failed: {message}")
+                return False
+            print(f" [✓] {message}")
+        except Exception as e:
+            print(f" [X] CRITICAL: check_tests_exist raised exception: {e}")
             return False
-        print(f" [✓] {message}")
 
         # Parse context files from task
         context_files = parse_context_files(task)

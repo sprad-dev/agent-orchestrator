@@ -166,22 +166,38 @@ Implement the code now."""
 
         # Preconditions
         print("\n [Preconditions] Running safety checks...")
-        
+
         # Check 1: Git working tree is clean
-        passed, message = check_git_clean()
-        if not passed:
-            print(f" [X] Git clean check failed: {message}")
-            print("     Commit or stash changes before running supervisor.")
+        try:
+            result = check_git_clean()
+            if not isinstance(result, tuple) or len(result) != 2:
+                print(f" [X] CRITICAL: check_git_clean returned invalid type: {type(result)}")
+                return False
+            passed, message = result
+            if not passed:
+                print(f" [X] Git clean check failed: {message}")
+                print("     Commit or stash changes before running supervisor.")
+                return False
+            print(f" [✓] {message}")
+        except Exception as e:
+            print(f" [X] CRITICAL: check_git_clean raised exception: {e}")
             return False
-        print(f" [✓] {message}")
-        
+
         # Check 2: Agent is reachable
-        passed, message = check_agent_reachable(self.agent_cmd_template)
-        if not passed:
-            print(f" [X] Agent reachable check failed: {message}")
+        try:
+            result = check_agent_reachable(self.agent_cmd_template)
+            if not isinstance(result, tuple) or len(result) != 2:
+                print(f" [X] CRITICAL: check_agent_reachable returned invalid type: {type(result)}")
+                return False
+            passed, message = result
+            if not passed:
+                print(f" [X] Agent reachable check failed: {message}")
+                return False
+            print(f" [✓] {message}")
+        except Exception as e:
+            print(f" [X] CRITICAL: check_agent_reachable raised exception: {e}")
             return False
-        print(f" [✓] {message}")
-        
+
         # Note: Skip tests_exist check in two-phase mode - tests are generated in phase 1
 
         # Parse context files from task

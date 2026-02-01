@@ -391,6 +391,68 @@ class TestPreconditionFailures(unittest.TestCase):
 
         self.assertFalse(result)
 
+    @patch('src.models.escalation.check_git_clean')
+    @patch('src.models.escalation.check_agent_reachable')
+    @patch('src.models.escalation.check_tests_exist')
+    def test_precondition_exception_handling(
+        self,
+        mock_check_tests,
+        mock_check_agent,
+        mock_check_git
+    ):
+        """Test that execution fails safely when precondition check raises exception."""
+        mock_check_git.side_effect = RuntimeError("Unexpected error in git check")
+
+        executor = EscalationExecutor("agent {prompt}", "pytest")
+        result = executor.execute("Fix the bug")
+
+        self.assertFalse(result)
+        # Subsequent checks should not run after exception
+        mock_check_agent.assert_not_called()
+        mock_check_tests.assert_not_called()
+
+    @patch('src.models.escalation.check_git_clean')
+    @patch('src.models.escalation.check_agent_reachable')
+    @patch('src.models.escalation.check_tests_exist')
+    def test_precondition_invalid_return_type(
+        self,
+        mock_check_tests,
+        mock_check_agent,
+        mock_check_git
+    ):
+        """Test that execution fails when precondition check returns invalid type."""
+        # Return a string instead of (bool, str) tuple
+        mock_check_git.return_value = "Not a tuple"
+
+        executor = EscalationExecutor("agent {prompt}", "pytest")
+        result = executor.execute("Fix the bug")
+
+        self.assertFalse(result)
+        # Subsequent checks should not run after type validation failure
+        mock_check_agent.assert_not_called()
+        mock_check_tests.assert_not_called()
+
+    @patch('src.models.escalation.check_git_clean')
+    @patch('src.models.escalation.check_agent_reachable')
+    @patch('src.models.escalation.check_tests_exist')
+    def test_precondition_wrong_tuple_length(
+        self,
+        mock_check_tests,
+        mock_check_agent,
+        mock_check_git
+    ):
+        """Test that execution fails when precondition check returns wrong tuple length."""
+        # Return tuple with wrong number of elements
+        mock_check_git.return_value = (True,)  # Missing message
+
+        executor = EscalationExecutor("agent {prompt}", "pytest")
+        result = executor.execute("Fix the bug")
+
+        self.assertFalse(result)
+        # Subsequent checks should not run
+        mock_check_agent.assert_not_called()
+        mock_check_tests.assert_not_called()
+
 
 class TestContextHandling(unittest.TestCase):
     """Tests for context file handling in escalation."""

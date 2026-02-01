@@ -11,6 +11,7 @@ This is the main entry point that delegates to modular components:
 """
 
 import argparse
+import sys
 
 from src.models import EscalationExecutor, TwoPhaseExecutor
 from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content
@@ -133,7 +134,11 @@ def main():
         test_model=args.test_model,
         impl_model=args.impl_model
     )
-    loop.execute(args.task)
+    success = loop.execute(args.task)
+
+    # Strict enforcement: Exit with non-zero code on failure
+    # This ensures precondition failures are detectable in CI/CD pipelines
+    sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":
