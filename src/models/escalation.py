@@ -12,7 +12,7 @@ import os
 import shlex
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
-from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content
+from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content, truncate_error
 from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist
 
 
@@ -106,7 +106,7 @@ class EscalationExecutor:
 {diff_content if diff_content else "(No changes were made)"}
 
 === ERROR OUTPUT ===
-{last_error[:1000] if last_error else "No error captured"}
+{truncate_error(last_error) if last_error else "No error captured"}
 
 Fix the error and implement correctly. Think step-by-step."""
 
@@ -148,12 +148,12 @@ Fix the error and implement correctly. Think step-by-step."""
                     run_shell("git stash drop", ignore_error=True)
                     return True
                 else:
-                    print(f" [X] Commit failed: {commit_output[:200]}")
+                    print(f" [X] Commit failed: {truncate_error(commit_output)}")
                     run_shell("git stash drop", ignore_error=True)
                     return False
             else:
                 print(" [X] FAILURE. Output snippet:")
-                print(f"---\n{output[:300]}...\n---")
+                print(f"---\n{truncate_error(output)}...\n---")
                 last_error = output
 
                 print(" [!] Resetting to clean state for retry...")

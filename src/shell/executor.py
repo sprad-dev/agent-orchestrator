@@ -60,3 +60,29 @@ def get_diff_content():
     """Get the full diff of current changes."""
     success, output, _ = run_shell("git diff", ignore_error=True)
     return output if success else "Unable to get diff"
+
+
+def truncate_error(error_text, max_length=2000):
+    """Truncate error text to prevent unbounded output.
+
+    Keeps first half and last half with ellipsis in middle.
+
+    Args:
+        error_text: The error text to truncate
+        max_length: Maximum length (default: 2000)
+
+    Returns:
+        Truncated string with first/last chunks if over limit
+
+    Example:
+        >>> truncate_error("x" * 5000, 2000)
+        'xxx...xxx'  # first 1000 + "..." + last 1000
+    """
+    if not error_text or len(error_text) <= max_length:
+        return error_text
+
+    chunk_size = max_length // 2
+    first_chunk = error_text[:chunk_size]
+    last_chunk = error_text[-chunk_size:]
+
+    return f"{first_chunk}\n...[truncated {len(error_text) - max_length} chars]...\n{last_chunk}"

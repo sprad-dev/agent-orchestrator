@@ -11,7 +11,7 @@ import os
 import shlex
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
-from src.shell import run_shell, has_changes, get_diff_summary
+from src.shell import run_shell, has_changes, get_diff_summary, truncate_error
 from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist
 
 
@@ -73,7 +73,7 @@ Generate the test file(s) now."""
         )
 
         if not commit_success:
-            print(f" [X] Failed to commit tests: {commit_output[:200]}")
+            print(f" [X] Failed to commit tests: {truncate_error(commit_output)}")
             return False
 
         print(" Test generation complete!")
@@ -104,7 +104,7 @@ Implement code to make the following tests pass:
 {task}
 
 TEST FAILURE OUTPUT:
-{test_output[:2000]}
+{truncate_error(test_output)}
 
 REQUIREMENTS:
 - Write minimal code to make the tests pass
@@ -141,7 +141,7 @@ Implement the code now."""
             return commit_success
         else:
             print(" [X] Tests still failing:")
-            print(f"---\n{test_output[:300]}...\n---")
+            print(f"---\n{truncate_error(test_output)}...\n---")
             return False
 
     def execute(self, task):
