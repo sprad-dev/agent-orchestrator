@@ -4,6 +4,9 @@ import sys
 import os
 import argparse
 import shlex
+import json
+import re
+from pathlib import Path
 
 # --- DEFAULTS ---
 # You can override these via CLI args later if needed
@@ -16,6 +19,80 @@ class RalphLoop:
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.max_retries = max_retries
+
+    def parse_context_files(self, task):
+        """Parse context_files from task specification.
+        
+        Supports two formats:
+        1. JSON-like: context_files: ["file1.py", "file2.py"]
+        2. Inline marker: [context: file1.py, file2.py]
+        
+        Returns list of file paths or None if not specified.
+        """
+        # Try JSON-like format
+        match = re.search(r'context_files:\s*\[([^\]]+)\]', task)
+        if match:
+            files_str = match.group(1)
+            # Parse as JSON array or comma-separated
+            try:
+                files = json.loads('[' + files_str + ']')
+                return [f.strip().strip('"\'') for f in files if f.strip()]
+            except json.JSONDecodeError:
+                # Fallback to comma-separated
+                return [f.strip().strip('"\'') for f in files_str.split(',') if f.strip()]
+        
+        # Try inline marker format
+        match = re.search(r'\[context:\s*([^\]]+)\]', task)
+        if match:
+            files_str = match.group(1)
+            return [f.strip() for f in files_str.split(',') if f.strip()]
+        
+        return None
+
+    def get_default_context_files(self, task):
+        """Infer context files from task description.
+        
+        Looks for Python file mentions and includes corresponding test files.
+        Returns list of file paths.
+        """
+        files = []
+        
+        # Find Python file mentions in task
+        py_files = re.findall(r'\b(\w+\.py)\b', task)
+        for f in py_files:
+            if os.path.exists(f):
+                files.append(f)
+                # Add corresponding test file if it exists
+                test_file = f'test_{f}'
+                if os.path.exists(test_file):
+                    files.append(test_file)
+        
+        return list(set(files))  # Remove duplicates
+
+    def build_context(self, files):
+        """Load specified files and build context string.
+        
+        Returns formatted context with file contents.
+        """
+        if not files:
+            return ""
+        
+        context_parts = ["\n=== CONTEXT FILES ===\n"]
+        
+        for filepath in files:
+            if not os.path.exists(filepath):
+                context_parts.append(f"\n--- {filepath} (NOT FOUND) ---\n")
+                continue
+            
+            try:
+                with open(filepath, 'r') as f:
+                    content = f.read()
+                context_parts.append(f"\n--- {filepath} ---\n{content}\n")
+            except Exception as e:
+                context_parts.append(f"\n--- {filepath} (ERROR: {e}) ---\n")
+        
+        context_parts.append("=== END CONTEXT ===\n")
+        return ''.join(context_parts)
 
     def run_shell(self, cmd, ignore_error=False):
         """Runs a command in the CURRENT working directory."""
@@ -47,6 +124,17 @@ class RalphLoop:
         print(f"Target: {os.getcwd()}")
         print(f"Task: {task}")
 
+        # Parse context files from task
+        context_files = self.parse_context_files(task)
+        if context_files is None:
+            # Use default context inference
+            context_files = self.get_default_context_files(task)
+        
+        if context_files:
+            print(f" [Context] 📁 Loading {len(context_files)} file(s): {', '.join(context_files)}")
+        else:
+            print(f" [Context] ⚠️  No context files specified or detected")
+
         # 1. Safety Snapshot
         print(" [1/5] 💾 Stashing clean state...")
         self.run_shell("git stash push -m 'Orchestrator Safety Snapshot'", ignore_error=True)
@@ -56,10 +144,15 @@ class RalphLoop:
         for attempt in range(1, self.max_retries + 1):
             print(f"\n--- 🔄 ATTEMPT {attempt}/{self.max_retries} ---")
 
-            # 2. Run Agent
-            context = f". Fix previous error: {last_error}" if last_error else ""
-            # Escape the prompt for shell safety
-            safe_prompt = shlex.quote(f"{task} {context}")
+            # 2. Run Agent with context
+            error_context = f". Fix previous error: {last_error}" if last_error else ""
+            
+            # Build file context
+            file_context = self.build_context(context_files)
+            
+            # Construct full prompt with context
+            full_task = f"{file_context}\n{task}{error_context}"
+            safe_prompt = shlex.quote(full_task)
 
             # Construct command (handling the format replacement manually for safety)
             # We replace only the {prompt} placeholder
