@@ -14,6 +14,7 @@ from typing import List, Optional
 from src.context import build_static_context, parse_context_files, get_default_context_files
 from src.shell import (
     run_shell,
+    run_shell_with_retry,
     has_changes,
     get_diff_summary,
     truncate_error,
@@ -68,7 +69,16 @@ Generate the test file(s) now."""
         agent_cmd = build_agent_command(self.agent_cmd_template, test_prompt, self.test_model)
 
         print(f" [1/3] Generating tests with {self.test_model} [timeout: {self.agent_timeout}s]...")
-        agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)
+        agent_success, agent_output, _ = run_shell_with_retry(
+            agent_cmd,
+            ignore_error=True,
+            timeout=self.agent_timeout,
+            max_retries=3,
+            initial_delay=1.0,
+            backoff_multiplier=2.0,
+            max_delay=60.0,
+            jitter=True
+        )
 
         if not has_changes():
             print(" [X] Test generation produced NO changes!")
@@ -130,7 +140,16 @@ Implement the code now."""
         agent_cmd = build_agent_command(self.agent_cmd_template, impl_prompt, self.impl_model)
 
         print(f" [2/4] Implementing with {self.impl_model} [timeout: {self.agent_timeout}s]...")
-        agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)
+        agent_success, agent_output, _ = run_shell_with_retry(
+            agent_cmd,
+            ignore_error=True,
+            timeout=self.agent_timeout,
+            max_retries=3,
+            initial_delay=1.0,
+            backoff_multiplier=2.0,
+            max_delay=60.0,
+            jitter=True
+        )
 
         if not has_changes():
             print(" [X] Implementation produced NO changes!")

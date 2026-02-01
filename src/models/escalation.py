@@ -15,6 +15,7 @@ from typing import List, Optional
 from src.context import build_static_context, parse_context_files, get_default_context_files
 from src.shell import (
     run_shell,
+    run_shell_with_retry,
     has_changes,
     get_diff_summary,
     get_diff_content,
@@ -153,7 +154,16 @@ Fix the error and implement correctly. Think step-by-step."""
             agent_cmd = build_agent_command(self.agent_cmd_template, full_task, model)
 
             print(f" [2/5] Unleashing Agent ({model}) [timeout: {self.agent_timeout}s]...")
-            agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)
+            agent_success, agent_output, _ = run_shell_with_retry(
+                agent_cmd,
+                ignore_error=True,
+                timeout=self.agent_timeout,
+                max_retries=3,
+                initial_delay=1.0,
+                backoff_multiplier=2.0,
+                max_delay=60.0,
+                jitter=True
+            )
 
             if not has_changes():
                 print(" [X] Agent made NO changes to repository!")

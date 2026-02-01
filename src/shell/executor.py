@@ -4,10 +4,13 @@ This module handles:
 - Running shell commands with error handling
 - Git status and diff operations
 - Working directory awareness
+- Exponential backoff retry for transient failures
 """
 
 import subprocess
 import shlex
+import time
+import random
 from typing import Tuple, Optional
 
 
@@ -44,6 +47,118 @@ def run_shell(cmd: str, ignore_error: bool = False, timeout: Optional[int] = Non
         return False, output, -1
     except subprocess.CalledProcessError as e:
         return False, e.stderr + e.stdout, e.returncode
+
+
+def _is_transient_failure(returncode: int, output: str) -> bool:
+    """Detect if a failure is transient and worth retrying.
+
+    Args:
+        returncode: Command exit code
+        output: Command output (stdout + stderr)
+
+    Returns:
+        True if the failure appears transient (network, rate limit, etc.)
+    """
+    # Timeout is always transient
+    if returncode == -1:
+        return True
+
+    # Check for common transient error patterns in output
+    transient_patterns = [
+        "connection refused",
+        "connection reset",
+        "temporarily unavailable",
+        "timed out",
+        "timeout",
+        "rate limit",
+        "429",  # HTTP 429 Too Many Requests
+        "503",  # HTTP 503 Service Unavailable
+        "network error",
+        "dns",
+        "could not resolve host",
+        "failed to connect",
+    ]
+
+    output_lower = output.lower()
+    return any(pattern in output_lower for pattern in transient_patterns)
+
+
+def run_shell_with_retry(
+    cmd: str,
+    ignore_error: bool = False,
+    timeout: Optional[int] = None,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+    backoff_multiplier: float = 2.0,
+    max_delay: float = 60.0,
+    jitter: bool = True
+) -> Tuple[bool, str, int]:
+    """Run shell command with exponential backoff retry on transient failures.
+
+    This wraps run_shell() with retry logic for transient failures like:
+    - Network timeouts
+    - Connection errors
+    - Rate limits (429)
+    - Temporary unavailability (503)
+
+    Args:
+        cmd: Shell command string to execute
+        ignore_error: If True, don't raise on non-zero exit
+        timeout: Maximum seconds to wait per attempt (default: None)
+        max_retries: Maximum number of retry attempts (default: 3)
+        initial_delay: Initial delay in seconds before first retry (default: 1.0)
+        backoff_multiplier: Multiplier for exponential backoff (default: 2.0)
+        max_delay: Maximum delay between retries in seconds (default: 60.0)
+        jitter: Add random jitter to delays to avoid thundering herd (default: True)
+
+    Returns:
+        Tuple of (success: bool, output: str, returncode: int)
+
+    Example:
+        # Retry up to 3 times with exponential backoff
+        success, output, code = run_shell_with_retry(
+            "claude 'Fix the bug'",
+            timeout=300,
+            max_retries=3
+        )
+    """
+    attempt = 0
+    delay = initial_delay
+
+    while attempt <= max_retries:
+        success, output, returncode = run_shell(cmd, ignore_error=True, timeout=timeout)
+
+        # Success - return immediately
+        if success:
+            return success, output, returncode
+
+        # Check if this is a transient failure worth retrying
+        is_transient = _is_transient_failure(returncode, output)
+
+        # If not transient, or we've exhausted retries, return failure
+        if not is_transient or attempt >= max_retries:
+            if not ignore_error and not is_transient:
+                # Non-transient failure - propagate error
+                return success, output, returncode
+            # Either ignore_error=True or we exhausted retries
+            return success, output, returncode
+
+        # Transient failure - retry with backoff
+        attempt += 1
+        current_delay = min(delay, max_delay)
+
+        # Add jitter to avoid thundering herd
+        if jitter:
+            current_delay *= (0.5 + random.random())  # Random factor between 0.5 and 1.5
+
+        print(f" [retry] Attempt {attempt}/{max_retries} after {current_delay:.1f}s (transient failure detected)")
+        time.sleep(current_delay)
+
+        # Exponential backoff for next iteration
+        delay *= backoff_multiplier
+
+    # Should not reach here, but return last result
+    return success, output, returncode
 
 
 def has_changes() -> bool:

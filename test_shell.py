@@ -9,6 +9,8 @@ from unittest.mock import patch, MagicMock
 import subprocess
 from src.shell.executor import (
     run_shell,
+    run_shell_with_retry,
+    _is_transient_failure,
     has_changes,
     get_diff_summary,
     get_diff_content,
@@ -376,6 +378,303 @@ class TestBuildAgentCommand(unittest.TestCase):
         self.assertIn("agent", result)
         # The semicolon should be within quotes, not executing as separate command
         self.assertNotEqual(result, "agent ; rm -rf / #")
+
+
+class TestIsTransientFailure(unittest.TestCase):
+    """Tests for _is_transient_failure function."""
+
+    def test_timeout_is_transient(self):
+        """Test that timeout (returncode -1) is detected as transient."""
+        result = _is_transient_failure(-1, "Command timed out")
+        self.assertTrue(result)
+
+    def test_connection_refused_is_transient(self):
+        """Test that connection refused errors are detected as transient."""
+        result = _is_transient_failure(1, "Error: connection refused")
+        self.assertTrue(result)
+
+    def test_connection_reset_is_transient(self):
+        """Test that connection reset errors are detected as transient."""
+        result = _is_transient_failure(1, "connection reset by peer")
+        self.assertTrue(result)
+
+    def test_rate_limit_429_is_transient(self):
+        """Test that 429 rate limit errors are detected as transient."""
+        result = _is_transient_failure(1, "HTTP 429 Too Many Requests")
+        self.assertTrue(result)
+
+    def test_service_unavailable_503_is_transient(self):
+        """Test that 503 service unavailable errors are detected as transient."""
+        result = _is_transient_failure(1, "HTTP 503 Service Unavailable")
+        self.assertTrue(result)
+
+    def test_network_timeout_is_transient(self):
+        """Test that network timeout errors are detected as transient."""
+        result = _is_transient_failure(1, "network error: timed out")
+        self.assertTrue(result)
+
+    def test_dns_error_is_transient(self):
+        """Test that DNS errors are detected as transient."""
+        result = _is_transient_failure(1, "Could not resolve host: example.com")
+        self.assertTrue(result)
+
+    def test_temporary_unavailability_is_transient(self):
+        """Test that temporary unavailability is detected as transient."""
+        result = _is_transient_failure(1, "Service temporarily unavailable")
+        self.assertTrue(result)
+
+    def test_non_transient_error(self):
+        """Test that non-transient errors are not flagged."""
+        result = _is_transient_failure(1, "Syntax error in file.py")
+        self.assertFalse(result)
+
+    def test_case_insensitive_detection(self):
+        """Test that error detection is case-insensitive."""
+        result = _is_transient_failure(1, "CONNECTION REFUSED")
+        self.assertTrue(result)
+
+    def test_success_not_transient(self):
+        """Test that success (returncode 0) is not transient."""
+        result = _is_transient_failure(0, "Success output")
+        self.assertFalse(result)
+
+
+class TestRunShellWithRetry(unittest.TestCase):
+    """Tests for run_shell_with_retry function."""
+
+    @patch('src.shell.executor.run_shell')
+    def test_success_first_attempt(self, mock_run_shell):
+        """Test that success on first attempt returns immediately without retries."""
+        mock_run_shell.return_value = (True, "success", 0)
+
+        success, output, returncode = run_shell_with_retry(
+            "echo test",
+            max_retries=3
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(output, "success")
+        self.assertEqual(returncode, 0)
+        # Should only call once (no retries needed)
+        self.assertEqual(mock_run_shell.call_count, 1)
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_success_after_retry(self, mock_run_shell, mock_sleep):
+        """Test success after transient failure and retry."""
+        # First call: transient failure (timeout)
+        # Second call: success
+        mock_run_shell.side_effect = [
+            (False, "Command timed out", -1),
+            (True, "success", 0)
+        ]
+
+        success, output, returncode = run_shell_with_retry(
+            "claude 'test'",
+            max_retries=3,
+            initial_delay=1.0,
+            jitter=False
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(output, "success")
+        self.assertEqual(returncode, 0)
+        # Should call twice (1 failure + 1 success)
+        self.assertEqual(mock_run_shell.call_count, 2)
+        # Should sleep once between attempts
+        mock_sleep.assert_called_once()
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_non_transient_failure_no_retry(self, mock_run_shell, mock_sleep):
+        """Test that non-transient failures don't trigger retries."""
+        mock_run_shell.return_value = (False, "Syntax error", 1)
+
+        success, output, returncode = run_shell_with_retry(
+            "python bad_code.py",
+            max_retries=3
+        )
+
+        self.assertFalse(success)
+        self.assertEqual(output, "Syntax error")
+        self.assertEqual(returncode, 1)
+        # Should only call once (no retries for non-transient)
+        self.assertEqual(mock_run_shell.call_count, 1)
+        # Should not sleep
+        mock_sleep.assert_not_called()
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_exhaust_max_retries(self, mock_run_shell, mock_sleep):
+        """Test that retries stop after max_retries is exhausted."""
+        # All calls fail with transient error
+        mock_run_shell.return_value = (False, "connection refused", 1)
+
+        success, output, returncode = run_shell_with_retry(
+            "agent command",
+            max_retries=3,
+            jitter=False
+        )
+
+        self.assertFalse(success)
+        self.assertIn("connection refused", output)
+        # Should call: initial attempt + 3 retries = 4 total
+        self.assertEqual(mock_run_shell.call_count, 4)
+        # Should sleep 3 times (after each failed retry)
+        self.assertEqual(mock_sleep.call_count, 3)
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_exponential_backoff(self, mock_run_shell, mock_sleep):
+        """Test that exponential backoff delays increase correctly."""
+        # All calls fail with transient error
+        mock_run_shell.return_value = (False, "timeout", -1)
+
+        run_shell_with_retry(
+            "agent command",
+            max_retries=3,
+            initial_delay=2.0,
+            backoff_multiplier=2.0,
+            jitter=False
+        )
+
+        # Should sleep with delays: 2.0, 4.0, 8.0
+        sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+        self.assertEqual(len(sleep_calls), 3)
+        self.assertEqual(sleep_calls[0], 2.0)
+        self.assertEqual(sleep_calls[1], 4.0)
+        self.assertEqual(sleep_calls[2], 8.0)
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_max_delay_cap(self, mock_run_shell, mock_sleep):
+        """Test that delays are capped at max_delay."""
+        mock_run_shell.return_value = (False, "rate limit", 1)
+
+        run_shell_with_retry(
+            "agent command",
+            max_retries=5,
+            initial_delay=10.0,
+            backoff_multiplier=3.0,
+            max_delay=20.0,
+            jitter=False
+        )
+
+        # Delays without cap would be: 10, 30, 90, 270, 810
+        # With max_delay=20, should be: 10, 20, 20, 20, 20
+        sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+        self.assertEqual(len(sleep_calls), 5)
+        self.assertEqual(sleep_calls[0], 10.0)
+        self.assertEqual(sleep_calls[1], 20.0)  # Capped
+        self.assertEqual(sleep_calls[2], 20.0)  # Capped
+        self.assertEqual(sleep_calls[3], 20.0)  # Capped
+        self.assertEqual(sleep_calls[4], 20.0)  # Capped
+
+    @patch('random.random')
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_jitter_enabled(self, mock_run_shell, mock_sleep, mock_random):
+        """Test that jitter adds randomness to delays."""
+        mock_run_shell.return_value = (False, "timeout", -1)
+        mock_random.return_value = 0.75  # Will result in 0.5 + 0.75 = 1.25 multiplier
+
+        run_shell_with_retry(
+            "agent command",
+            max_retries=2,
+            initial_delay=10.0,
+            backoff_multiplier=2.0,
+            jitter=True
+        )
+
+        # First retry: 10.0 * 1.25 = 12.5
+        # Second retry: 20.0 * 1.25 = 25.0
+        sleep_calls = [call[0][0] for call in mock_sleep.call_args_list]
+        self.assertEqual(len(sleep_calls), 2)
+        self.assertAlmostEqual(sleep_calls[0], 12.5)
+        self.assertAlmostEqual(sleep_calls[1], 25.0)
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_ignore_error_with_retries(self, mock_run_shell, mock_sleep):
+        """Test ignore_error=True still allows retries for transient failures."""
+        mock_run_shell.side_effect = [
+            (False, "429 rate limit", 1),
+            (True, "success", 0)
+        ]
+
+        success, output, returncode = run_shell_with_retry(
+            "agent command",
+            ignore_error=True,
+            max_retries=3,
+            jitter=False
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(mock_run_shell.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_timeout_parameter_passed(self, mock_run_shell, mock_sleep):
+        """Test that timeout parameter is passed to run_shell."""
+        mock_run_shell.return_value = (True, "success", 0)
+
+        run_shell_with_retry(
+            "agent command",
+            timeout=300,
+            max_retries=3
+        )
+
+        # Verify timeout was passed to run_shell
+        mock_run_shell.assert_called_once()
+        call_kwargs = mock_run_shell.call_args[1]
+        self.assertEqual(call_kwargs['timeout'], 300)
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_zero_retries(self, mock_run_shell, mock_sleep):
+        """Test that max_retries=0 means no retries (single attempt only)."""
+        mock_run_shell.return_value = (False, "timeout", -1)
+
+        success, output, returncode = run_shell_with_retry(
+            "agent command",
+            max_retries=0
+        )
+
+        self.assertFalse(success)
+        # Should only call once (no retries)
+        self.assertEqual(mock_run_shell.call_count, 1)
+        # Should not sleep
+        mock_sleep.assert_not_called()
+
+    @patch('time.sleep')
+    @patch('src.shell.executor.run_shell')
+    def test_multiple_transient_patterns(self, mock_run_shell, mock_sleep):
+        """Test detection of various transient failure patterns."""
+        transient_errors = [
+            "connection refused",
+            "503 service unavailable",
+            "network error occurred",
+            "failed to connect",
+        ]
+
+        for error_msg in transient_errors:
+            mock_run_shell.reset_mock()
+            mock_sleep.reset_mock()
+            mock_run_shell.side_effect = [
+                (False, error_msg, 1),
+                (True, "success", 0)
+            ]
+
+            success, output, returncode = run_shell_with_retry(
+                "test",
+                max_retries=3,
+                jitter=False
+            )
+
+            self.assertTrue(success, f"Failed to retry for: {error_msg}")
+            self.assertEqual(mock_run_shell.call_count, 2)
+            mock_sleep.assert_called_once()
 
 
 if __name__ == "__main__":

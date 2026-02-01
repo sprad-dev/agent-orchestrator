@@ -53,7 +53,14 @@ class VerificationConfig:
     strict_mode: bool = False
     fail_fast: bool = False
     verbose: bool = False
-    
+
+    # Retry configuration for transient failures
+    max_retries: int = 3
+    retry_initial_delay: float = 1.0
+    retry_backoff_multiplier: float = 2.0
+    retry_max_delay: float = 60.0
+    retry_jitter: bool = True
+
     # Custom settings (for extensibility)
     custom_settings: Dict[str, Any] = field(default_factory=dict)
     
@@ -89,6 +96,11 @@ class VerificationConfig:
             'strict_mode',
             'fail_fast',
             'verbose',
+            'max_retries',
+            'retry_initial_delay',
+            'retry_backoff_multiplier',
+            'retry_max_delay',
+            'retry_jitter',
         }
         
         config_kwargs = {}
@@ -137,7 +149,20 @@ class VerificationConfig:
         # Validate test command is not empty
         if not self.test_command or not self.test_command.strip():
             errors.append("test_command cannot be empty")
-        
+
+        # Validate retry configuration
+        if self.max_retries < 0:
+            errors.append(f"max_retries must be non-negative, got {self.max_retries}")
+
+        if self.retry_initial_delay <= 0:
+            errors.append(f"retry_initial_delay must be positive, got {self.retry_initial_delay}")
+
+        if self.retry_backoff_multiplier < 1.0:
+            errors.append(f"retry_backoff_multiplier must be >= 1.0, got {self.retry_backoff_multiplier}")
+
+        if self.retry_max_delay <= 0:
+            errors.append(f"retry_max_delay must be positive, got {self.retry_max_delay}")
+
         if errors:
             raise ValueError("Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors))
     
@@ -163,6 +188,11 @@ class VerificationConfig:
             'strict_mode': self.strict_mode,
             'fail_fast': self.fail_fast,
             'verbose': self.verbose,
+            'max_retries': self.max_retries,
+            'retry_initial_delay': self.retry_initial_delay,
+            'retry_backoff_multiplier': self.retry_backoff_multiplier,
+            'retry_max_delay': self.retry_max_delay,
+            'retry_jitter': self.retry_jitter,
         }
         
         # Add optional fields only if not None (for TOML compatibility)

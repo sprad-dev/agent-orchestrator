@@ -2,6 +2,7 @@
 
 from .executor import (
     run_shell,
+    run_shell_with_retry,
     has_changes,
     get_diff_summary,
     get_diff_content,
@@ -11,6 +12,7 @@ from .executor import (
 
 __all__ = [
     "run_shell",
+    "run_shell_with_retry",
     "has_changes",
     "get_diff_summary",
     "get_diff_content",

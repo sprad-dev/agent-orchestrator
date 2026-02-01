@@ -48,6 +48,7 @@ class TestEscalationExecutorInitialization(unittest.TestCase):
 class TestEscalationSuccess(unittest.TestCase):
     """Tests for successful escalation scenarios."""
 
+    @patch('src.models.escalation.run_shell_with_retry')
     @patch('src.models.escalation.run_shell')
     @patch('src.models.escalation.has_changes')
     @patch('src.models.escalation.get_diff_summary')
@@ -67,7 +68,8 @@ class TestEscalationSuccess(unittest.TestCase):
         mock_check_git,
         mock_diff_summary,
         mock_has_changes,
-        mock_run_shell
+        mock_run_shell,
+        mock_run_shell_retry
     ):
         """Test successful execution on first model attempt."""
         # Setup mocks
@@ -80,7 +82,7 @@ class TestEscalationSuccess(unittest.TestCase):
         mock_has_changes.return_value = True
         mock_diff_summary.return_value = "1 file changed"
 
-        # Mock run_shell calls
+        # Mock run_shell calls (for git operations)
         def run_shell_side_effect(cmd, ignore_error=False, timeout=None):
             if "git stash" in cmd:
                 return (True, "", 0)
@@ -88,19 +90,22 @@ class TestEscalationSuccess(unittest.TestCase):
                 return (True, "Committed", 0)
             elif "pytest" in cmd or "verify" in cmd:
                 return (True, "All tests passed", 0)
-            else:  # Agent command
-                return (True, "Agent output", 0)
+            else:
+                return (True, "Output", 0)
 
         mock_run_shell.side_effect = run_shell_side_effect
+
+        # Mock run_shell_with_retry calls (for agent invocation)
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
 
         executor = EscalationExecutor("agent {prompt}", "pytest", models=["model1"])
         result = executor.execute("Fix the bug")
 
         self.assertTrue(result)
         # Verify agent was called only once (first model succeeded)
-        agent_calls = [c for c in mock_run_shell.call_args_list if "agent" in str(c)]
-        self.assertEqual(len(agent_calls), 1)
+        self.assertEqual(mock_run_shell_retry.call_count, 1)
 
+    @patch('src.models.escalation.run_shell_with_retry')
     @patch('src.models.escalation.run_shell')
     @patch('src.models.escalation.has_changes')
     @patch('src.models.escalation.get_diff_summary')
@@ -122,7 +127,8 @@ class TestEscalationSuccess(unittest.TestCase):
         mock_diff_content,
         mock_diff_summary,
         mock_has_changes,
-        mock_run_shell
+        mock_run_shell,
+        mock_run_shell_retry
     ):
         """Test escalation to next model after first fails."""
         # Setup mocks
@@ -152,23 +158,24 @@ class TestEscalationSuccess(unittest.TestCase):
                     return (False, "Test failed", 1)
                 else:
                     return (True, "All tests passed", 0)
-            else:  # Agent command
-                return (True, "Agent output", 0)
+            else:
+                return (True, "Output", 0)
 
         mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
 
         executor = EscalationExecutor("agent {prompt}", "verify", models=["model1", "model2"])
         result = executor.execute("Fix the bug")
 
         self.assertTrue(result)
         # Verify both models were tried
-        agent_calls = [c for c in mock_run_shell.call_args_list if "agent" in str(c)]
-        self.assertEqual(len(agent_calls), 2)
+        self.assertEqual(mock_run_shell_retry.call_count, 2)
 
 
 class TestEscalationFailure(unittest.TestCase):
     """Tests for escalation failure scenarios."""
 
+    @patch('src.models.escalation.run_shell_with_retry')
     @patch('src.models.escalation.run_shell')
     @patch('src.models.escalation.has_changes')
     @patch('src.models.escalation.get_diff_summary')
@@ -190,7 +197,8 @@ class TestEscalationFailure(unittest.TestCase):
         mock_diff_content,
         mock_diff_summary,
         mock_has_changes,
-        mock_run_shell
+        mock_run_shell,
+        mock_run_shell_retry
     ):
         """Test that execution fails when all models fail."""
         # Setup mocks
@@ -212,10 +220,11 @@ class TestEscalationFailure(unittest.TestCase):
             elif "pytest" in cmd or cmd == "verify":
                 # All verifications fail
                 return (False, "Test failed", 1)
-            else:  # Agent command
-                return (True, "Agent output", 0)
+            else:
+                return (True, "Output", 0)
 
         mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
 
         executor = EscalationExecutor(
             "agent {prompt}",
@@ -226,12 +235,12 @@ class TestEscalationFailure(unittest.TestCase):
 
         self.assertFalse(result)
         # Verify all 3 models were tried
-        agent_calls = [c for c in mock_run_shell.call_args_list if "agent" in str(c)]
-        self.assertEqual(len(agent_calls), 3)
+        self.assertEqual(mock_run_shell_retry.call_count, 3)
         # Verify stash pop was called (rollback)
         stash_pop_calls = [c for c in mock_run_shell.call_args_list if "git stash pop" in str(c)]
         self.assertEqual(len(stash_pop_calls), 1)
 
+    @patch('src.models.escalation.run_shell_with_retry')
     @patch('src.models.escalation.run_shell')
     @patch('src.models.escalation.has_changes')
     @patch('src.models.escalation.check_git_clean')
@@ -249,7 +258,8 @@ class TestEscalationFailure(unittest.TestCase):
         mock_check_agent,
         mock_check_git,
         mock_has_changes,
-        mock_run_shell
+        mock_run_shell,
+        mock_run_shell_retry
     ):
         """Test that agent producing no changes triggers retry."""
         # Setup mocks
@@ -266,18 +276,18 @@ class TestEscalationFailure(unittest.TestCase):
                 return (True, "", 0)
             elif "git reset" in cmd or "git clean" in cmd:
                 return (True, "", 0)
-            else:  # Agent command
-                return (True, "Agent output", 0)
+            else:
+                return (True, "Output", 0)
 
         mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
 
         executor = EscalationExecutor("agent {prompt}", "verify", models=["model1", "model2"])
         result = executor.execute("Fix the bug")
 
         self.assertFalse(result)
         # Verify all models were tried (no changes, so kept retrying)
-        agent_calls = [c for c in mock_run_shell.call_args_list if "agent" in str(c)]
-        self.assertEqual(len(agent_calls), 2)
+        self.assertEqual(mock_run_shell_retry.call_count, 2)
 
 
 class TestPreconditionFailures(unittest.TestCase):
