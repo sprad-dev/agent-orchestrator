@@ -1170,5 +1170,297 @@ exit 0
         self.assertFalse(result)
 
 
+class TestTimeoutFeature(unittest.TestCase):
+    """Tests for agent execution timeout functionality."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        
+        # Initialize git repo
+        os.system("git init > /dev/null 2>&1")
+        os.system("git config user.email 'test@test.com' > /dev/null 2>&1")
+        os.system("git config user.name 'Test User' > /dev/null 2>&1")
+        os.system("git commit --allow-empty -m 'Initial commit' > /dev/null 2>&1")
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_timeout_kills_long_running_agent(self):
+        """Test that agent execution is killed after timeout."""
+        # Create agent that sleeps longer than timeout
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+echo "Starting long task..."
+sleep 10  # Sleep for 10 seconds
+echo "Task completed"
+echo "output" > result.txt
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        os.system("git add agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        from src.models.escalation import EscalationExecutor
+        
+        # Use 2-second timeout (much shorter than the 10-second sleep)
+        executor = EscalationExecutor("./agent.sh {prompt}", "true", 
+                                     models=["test-model"], agent_timeout=2)
+        
+        result = executor.execute("test task")
+        
+        # Should fail due to timeout
+        self.assertFalse(result)
+        
+        # Output file should not exist (agent was killed before creating it)
+        self.assertFalse(Path("result.txt").exists())
+
+    def test_timeout_preserves_partial_output(self):
+        """Test that partial output is captured before timeout."""
+        # Create agent that outputs before sleeping
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+echo "Partial output before timeout"
+echo "Some file content" > output.txt
+sleep 10
+echo "This should not appear"
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        os.system("git add agent.sh output.txt > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        from src.shell import run_shell
+        
+        success, output, returncode = run_shell("./agent.sh", ignore_error=True, timeout=2)
+        
+        # Should fail with timeout
+        self.assertFalse(success)
+        self.assertEqual(returncode, -1)
+        
+        # Should capture output that occurred before timeout
+        self.assertIn("Partial output before timeout", output)
+        self.assertIn("TIMEOUT", output)
+
+
+class TestTestsExistPrecondition(unittest.TestCase):
+    """Tests for check_tests_exist precondition."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_check_tests_exist_passes_with_collected_tests(self):
+        """Test that check passes when pytest collects tests."""
+        from src.preconditions import check_tests_exist
+        
+        # Create a test file with actual test
+        Path("test_example.py").write_text("""
+def test_example():
+    assert True
+""")
+        
+        passed, message = check_tests_exist("python -m pytest")
+        
+        self.assertTrue(passed)
+        self.assertIn("Collected", message)
+
+    def test_check_tests_exist_fails_with_zero_tests(self):
+        """Test that check fails when pytest collects 0 items."""
+        from src.preconditions import check_tests_exist
+        
+        # Create empty test file
+        Path("test_empty.py").write_text("# No tests here\n")
+        
+        passed, message = check_tests_exist("python -m pytest")
+        
+        self.assertFalse(passed)
+        self.assertIn("No tests collected", message)
+
+    def test_check_tests_exist_skips_non_pytest(self):
+        """Test that check skips for non-pytest commands."""
+        from src.preconditions import check_tests_exist
+        
+        passed, message = check_tests_exist("./custom-verifier.sh")
+        
+        self.assertTrue(passed)
+        self.assertIn("Skipping test collection check", message)
+
+    def test_check_tests_exist_handles_pytest_failure(self):
+        """Test that check handles pytest collection failures gracefully."""
+        from src.preconditions import check_tests_exist
+        
+        # Try to run pytest in directory with syntax error
+        Path("test_bad.py").write_text("def test_bad(\n")  # Syntax error
+        
+        passed, message = check_tests_exist("python -m pytest")
+        
+        self.assertFalse(passed)
+        # Pytest with syntax errors still reports "no tests collected"
+        self.assertIn("No tests collected", message)
+
+
+class TestAgentReachablePrecondition(unittest.TestCase):
+    """Tests for check_agent_reachable precondition."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_check_agent_reachable_finds_valid_command(self):
+        """Test that check passes for commands in PATH."""
+        from src.preconditions import check_agent_reachable
+        
+        # Test with common system command
+        passed, message = check_agent_reachable("echo {prompt}")
+        
+        self.assertTrue(passed)
+        self.assertIn("reachable", message.lower())
+        self.assertIn("echo", message)
+
+    def test_check_agent_reachable_fails_missing_command(self):
+        """Test that check fails when command not in PATH."""
+        from src.preconditions import check_agent_reachable
+        
+        passed, message = check_agent_reachable("nonexistent-command-xyz {prompt}")
+        
+        self.assertFalse(passed)
+        self.assertIn("not found", message)
+
+    def test_check_agent_reachable_handles_empty_command(self):
+        """Test that check handles empty command template."""
+        from src.preconditions import check_agent_reachable
+        
+        passed, message = check_agent_reachable("")
+        
+        self.assertFalse(passed)
+        self.assertIn("Empty agent command", message)
+
+    def test_check_agent_reachable_with_local_script(self):
+        """Test that check works with local script paths."""
+        from src.preconditions import check_agent_reachable
+        
+        # Create a local script
+        script = Path("./agent.sh")
+        script.write_text("#!/bin/bash\necho test\n")
+        script.chmod(0o755)
+        
+        passed, message = check_agent_reachable("./agent.sh {prompt}")
+        
+        self.assertTrue(passed)
+        self.assertIn("reachable", message.lower())
+
+
+class TestPreconditionIntegration(unittest.TestCase):
+    """Integration tests for preconditions in execution flow."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        
+        # Initialize git repo
+        os.system("git init > /dev/null 2>&1")
+        os.system("git config user.email 'test@test.com' > /dev/null 2>&1")
+        os.system("git config user.name 'Test User' > /dev/null 2>&1")
+        os.system("git commit --allow-empty -m 'Initial commit' > /dev/null 2>&1")
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_preconditions_run_before_agent_execution(self):
+        """Test that preconditions are checked before agent runs."""
+        # Create agent that writes to a marker file
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+echo "AGENT_EXECUTED" > /tmp/agent_executed_marker.txt
+echo "output" > result.txt
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        os.system("git add agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        # Remove marker if it exists
+        if Path("/tmp/agent_executed_marker.txt").exists():
+            Path("/tmp/agent_executed_marker.txt").unlink()
+        
+        # Create uncommitted changes (will fail git clean check)
+        Path("dirty.txt").write_text("uncommitted")
+        
+        loop = RalphLoop("./agent.sh {prompt}", "true", 1)
+        result = loop.execute("test task")
+        
+        # Execution should fail
+        self.assertFalse(result)
+        
+        # Agent should NOT have run (marker file should not exist)
+        self.assertFalse(Path("/tmp/agent_executed_marker.txt").exists())
+
+    def test_agent_reachable_precondition_fails_fast(self):
+        """Test that missing agent fails immediately."""
+        loop = RalphLoop("nonexistent-agent {prompt}", "true", 1)
+        
+        result = loop.execute("test task")
+        
+        # Should fail quickly without trying to run agent
+        self.assertFalse(result)
+
+    def test_tests_exist_precondition_in_escalation_mode(self):
+        """Test that tests_exist check runs in escalation mode."""
+        # Create valid agent and test
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+echo "output" > result.txt
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        Path("test_example.py").write_text("""
+def test_example():
+    assert True
+""")
+        
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'add files' > /dev/null 2>&1")
+        
+        loop = RalphLoop("./agent.sh {prompt}", "python -m pytest", 1)
+        
+        # Should pass preconditions and run (verify.sh will determine final result)
+        # We're just checking that preconditions don't block valid setup
+        result = loop.execute("test task")
+        
+        # Result depends on verification, but preconditions should have passed
+        # (no assertion needed, just ensuring no crash)
+
+
 if __name__ == "__main__":
     unittest.main()

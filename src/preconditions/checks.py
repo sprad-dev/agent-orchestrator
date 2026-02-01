@@ -4,7 +4,7 @@ This module contains individual precondition checks.
 Each check returns (passed: bool, message: str).
 """
 
-from src.shell import run_shell
+from src.shell import run_shell, truncate_error
 
 
 def check_git_clean():
@@ -18,7 +18,7 @@ def check_git_clean():
         return False, "Failed to check git status"
 
     if output.strip():
-        return False, f"Working tree has uncommitted changes:\n{output[:500]}"
+        return False, f"Working tree has uncommitted changes:\n{truncate_error(output)}"
 
     return True, "Working tree is clean"
 
@@ -42,16 +42,17 @@ def check_tests_exist(verify_cmd="pytest"):
     # Use pytest's --collect-only to check without running tests
     success, output, _ = run_shell(f"{verify_cmd} --collect-only -q", ignore_error=True)
     
-    if not success:
-        return False, f"Failed to collect tests: {output[:200]}"
-    
-    # Check for "collected 0 items"
-    if "collected 0 items" in output.lower():
+    # Check for "collected 0 items" or "no tests collected" (can happen with success=False)
+    if "collected 0 items" in output.lower() or "no tests collected" in output.lower():
         return False, "No tests collected - pytest found 0 items"
+    
+    # Check if collection failed for other reasons (syntax errors, import errors)
+    if not success and "collected" not in output.lower():
+        return False, f"Failed to collect tests: {truncate_error(output)}"
     
     # Extract count if available
     import re
-    match = re.search(r'collected (\d+)', output, re.IGNORECASE)
+    match = re.search(r'(\d+)\s+tests?\s+collected', output, re.IGNORECASE)
     if match:
         count = match.group(1)
         return True, f"Collected {count} test(s)"
