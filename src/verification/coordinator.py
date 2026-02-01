@@ -132,3 +132,36 @@ class LayerCoordinator:
     def clear(self) -> None:
         """Clear all registered layers."""
         self.layers.clear()
+
+    def execute_layer_level_with_output(
+        self,
+        level: int,
+        level_name: str,
+        output_lines: List[str],
+        **kwargs
+    ) -> Tuple[bool, Optional[str]]:
+        """Execute layers at a level and format output.
+
+        Args:
+            level: Layer level to execute
+            level_name: Display name for the level (e.g., "FILE EXISTENCE CHECK")
+            output_lines: List to append success messages to
+            **kwargs: Parameters to pass to layers
+
+        Returns:
+            Tuple of (passed, error_output)
+            - passed: True if all layers passed
+            - error_output: Formatted error message if failed, None otherwise
+        """
+        passed, results = self.run_layers(level, **kwargs)
+
+        for result in results:
+            if result.error_details:
+                error = f"{level_name} FAILED:\n" + "\n".join(result.error_details)
+                return False, error
+            output_lines.append(f"✓ L{level} {result.message}")
+
+        if not passed:
+            return False, None
+
+        return True, None

@@ -6,7 +6,7 @@ to enable parallel development.
 """
 
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from src.shell import run_shell
 from src.verification.coordinator import LayerCoordinator
 from src.verification.pytest_validator import parse_test_count
@@ -142,81 +142,139 @@ class VerificationRunner:
         """Execute verification pipeline with multi-layer checks.
 
         Args:
-            modified_files: Optional list of modified Python files for syntax checking
-
+            modified_files: Optional list of modified Python files
         Returns:
             Tuple of (passed: bool, output: str)
         """
         output_lines = []
-        
-        # L1: File existence validation (fastest pre-check)
-        if modified_files:
-            l1_passed, l1_results = self.coordinator.run_layers(1, files=modified_files)
-            for result in l1_results:
-                if result.error_details:
-                    output = f"FILE EXISTENCE CHECK FAILED:\n" + "\n".join(result.error_details)
-                    return False, output
-                output_lines.append(f"✓ L1 {result.message}")
-            
-            if not l1_passed:
-                return False, "\n".join(output_lines)
-        
-        # L2: Syntax validation (fast pre-check)
-        if modified_files:
-            l2_passed, l2_results = self.coordinator.run_layers(2, files=modified_files)
-            for result in l2_results:
-                if result.error_details:
-                    output = f"SYNTAX CHECK FAILED:\n" + "\n".join(result.error_details)
-                    return False, output
-                output_lines.append(f"✓ L2 {result.message}")
-            
-            if not l2_passed:
-                return False, "\n".join(output_lines)
-        
-        # Run pytest with timing
-        start_time = time.time()
-        passed, pytest_output, _ = run_shell(self.verify_cmd, ignore_error=True)
-        test_duration = time.time() - start_time
+        # L1-L2: Pre-checks (file existence, syntax)
+        if not self._run_prechecks(modified_files, output_lines):
+            return False, "\n".join(output_lines)
+
+        # Run tests with timing
+        passed, pytest_output, test_duration = self._execute_tests()
         output_lines.append(pytest_output)
-        
-        # L3: Pytest validation and other L3 checks
-        l3_passed, l3_results = self.coordinator.run_layers(3, pytest_output=pytest_output, test_count=parse_test_count(pytest_output), changed_files=modified_files)
-        
-        for result in l3_results:
+
+        # L3: Post-test validation
+        if not self._run_postchecks(pytest_output, modified_files, output_lines):
+            return False, "\n".join(output_lines)
+
+        # L4: Performance tracking
+        self._track_performance(test_duration, pytest_output, output_lines)
+        return passed, "\n".join(output_lines)
+
+    def _run_prechecks(self, modified_files: Optional[List[str]], output_lines: List[str]) -> bool:
+        """Run L1 and L2 pre-checks (file existence, syntax).
+
+        Args:
+            modified_files: Files to check
+            output_lines: List to append output to
+
+        Returns:
+            True if all checks passed, False otherwise
+        """
+        if not modified_files:
+            return True
+
+        # L1: File existence
+        passed, error = self.coordinator.execute_layer_level_with_output(
+            1, "FILE EXISTENCE CHECK", output_lines, files=modified_files
+        )
+        if not passed:
+            if error:
+                output_lines.clear()
+                output_lines.append(error)
+            return False
+
+        # L2: Syntax check
+        passed, error = self.coordinator.execute_layer_level_with_output(
+            2, "SYNTAX CHECK", output_lines, files=modified_files
+        )
+        if not passed:
+            if error:
+                output_lines.clear()
+                output_lines.append(error)
+            return False
+
+        return True
+
+    def _execute_tests(self) -> Tuple[bool, str, float]:
+        """Execute pytest and measure duration.
+
+        Returns:
+            Tuple of (passed, output, duration)
+        """
+        start_time = time.time()
+        passed, output, _ = run_shell(self.verify_cmd, ignore_error=True)
+        duration = time.time() - start_time
+        return passed, output, duration
+
+    def _run_postchecks(
+        self,
+        pytest_output: str,
+        modified_files: Optional[List[str]],
+        output_lines: List[str]
+    ) -> bool:
+        """Run L3 post-test validation checks.
+
+        Args:
+            pytest_output: Output from pytest
+            modified_files: Files that were modified
+            output_lines: List to append output to
+
+        Returns:
+            True if all checks passed, False otherwise
+        """
+        test_count = parse_test_count(pytest_output)
+        passed, results = self.coordinator.run_layers(
+            3,
+            pytest_output=pytest_output,
+            test_count=test_count,
+            changed_files=modified_files
+        )
+
+        for result in results:
             if not result.passed:
                 output = "\n".join(output_lines) + f"\n\n{result.message}"
                 if result.error_details:
                     output += "\n" + "\n".join(result.error_details)
-                return False, output
+                output_lines.clear()
+                output_lines.append(output)
+                return False
             output_lines.append(f"✓ L3 {result.message}")
-        
-        if not l3_passed:
-            return False, "\n".join(output_lines)
-        
-        # L4: Performance metrics tracking
+
+        return passed
+
+    def _track_performance(
+        self,
+        test_duration: float,
+        pytest_output: str,
+        output_lines: List[str]
+    ) -> None:
+        """Track L4 performance metrics.
+
+        Args:
+            test_duration: Duration of test execution
+            pytest_output: Output from pytest
+            output_lines: List to append output to
+        """
         test_count = parse_test_count(pytest_output)
         tests_passed, tests_failed = parse_pytest_results(pytest_output)
-        
-        # Record metrics
+
         self.performance_tracker.record_metrics(
             duration=test_duration,
             test_count=test_count,
             tests_passed=tests_passed,
             tests_failed=tests_failed
         )
-        
-        # Check for regression
+
         is_regression, perf_msg = self.performance_tracker.detect_regression(
             test_duration,
             threshold_percent=20.0
         )
-        
-        if is_regression:
-            output_lines.append(f"⚠ L4 Performance: {perf_msg}")
-        else:
-            output_lines.append(f"✓ L4 Performance: {perf_msg}")
-        
-        return passed, "\n".join(output_lines)
+
+        prefix = "⚠" if is_regression else "✓"
+        output_lines.append(f"{prefix} L4 Performance: {perf_msg}")
 
     def get_performance_metrics(self):
         """Get performance tracker for external access.
