@@ -98,6 +98,43 @@ class RalphLoop:
         
         context_parts.append("=== END CONTEXT ===\n")
         return ''.join(context_parts)
+    
+    def build_static_context(self, context_files):
+        """Build static context block optimized for prompt caching.
+        
+        CACHING STRATEGY:
+        Claude's automatic prompt caching caches long prefixes. By placing
+        static content (repo files, docs) at the beginning, subsequent
+        retries can reuse the cached context at ~90% cost reduction.
+        
+        This method returns the static portion that should appear first
+        in prompts to maximize cache hit rates.
+        
+        Returns: tuple of (static_context_str, context_size_bytes)
+        """
+        if not context_files:
+            return "", 0
+        
+        static_parts = []
+        
+        # Repository structure/context files - these are stable across retries
+        file_context = self.build_context(context_files)
+        if file_context:
+            static_parts.append(file_context)
+        
+        # General coding guidelines (static)
+        static_parts.append("""
+=== GENERAL GUIDELINES ===
+- Write clean, maintainable code
+- Follow existing code style and conventions
+- Add appropriate error handling
+- Write clear comments where needed
+- Ensure all changes are production-ready
+=== END GUIDELINES ===
+""")
+        
+        static_content = ''.join(static_parts)
+        return static_content, len(static_content.encode('utf-8'))
 
     def run_shell(self, cmd, ignore_error=False):
         """Runs a command in the CURRENT working directory."""
@@ -129,13 +166,16 @@ class RalphLoop:
         """Phase 1: Generate tests using smart model."""
         print(f"\n=== 🧠 TEST GENERATION PHASE (Model: {self.test_model}) ===")
         
-        # Build file context
-        file_context = self.build_context(context_files)
+        # Build static context optimized for caching
+        static_context, context_size = self.build_static_context(context_files)
+        print(f" [Cache] 📦 Static context: {context_size:,} bytes (cacheable)")
         
-        # Construct test generation prompt
-        test_prompt = f"""{file_context}
+        # Construct test generation prompt with STATIC content first
+        # This structure optimizes for Claude's automatic prompt caching
+        test_prompt = f"""{static_context}
 
-TASK: Generate pytest test file(s) for the following requirement:
+=== SPECIFIC TASK (Dynamic) ===
+Generate pytest test file(s) for the following requirement:
 {task}
 
 REQUIREMENTS:
@@ -188,13 +228,16 @@ Generate the test file(s) now."""
         
         print(" [X] Tests failed (expected). Error output captured.")
         
-        # Build file context including test files
-        file_context = self.build_context(context_files)
+        # Build static context optimized for caching
+        static_context, context_size = self.build_static_context(context_files)
+        print(f" [Cache] 📦 Static context: {context_size:,} bytes (cacheable)")
         
-        # Construct implementation prompt with test failure context
-        impl_prompt = f"""{file_context}
+        # Construct implementation prompt with STATIC content first
+        # Dynamic test failure output comes AFTER static context for caching
+        impl_prompt = f"""{static_context}
 
-TASK: Implement code to make the following tests pass:
+=== SPECIFIC TASK (Dynamic) ===
+Implement code to make the following tests pass:
 {task}
 
 TEST FAILURE OUTPUT:
@@ -301,6 +344,11 @@ Implement the code now."""
         else:
             print(f" [Context] ⚠️  No context files specified or detected")
 
+        # Build static context once for caching optimization
+        static_context, context_size = self.build_static_context(context_files)
+        if context_size > 0:
+            print(f" [Cache] 📦 Static context: {context_size:,} bytes (cacheable)")
+
         # 1. Safety Snapshot
         print(" [1/5] 💾 Stashing clean state...")
         self.run_shell("git stash push -m 'Orchestrator Safety Snapshot'", ignore_error=True)
@@ -313,15 +361,15 @@ Implement the code now."""
             print(f"\n--- 🔄 ATTEMPT {attempt}/{len(self.models)} [Model: {model}] ---")
 
             # 2. Run Agent with context
+            # CACHING OPTIMIZATION: Static context first, dynamic task/errors last
+            dynamic_task = f"\n=== SPECIFIC TASK (Dynamic) ===\n{task}"
+            
             escalation_context = ""
             if last_error:
                 escalation_context = f"\n\nPREVIOUS ATTEMPT FAILED with error:\n{last_error}\n\nThink step-by-step and fix this."
             
-            # Build file context
-            file_context = self.build_context(context_files)
-            
-            # Construct full prompt with context
-            full_task = f"{file_context}\n{task}{escalation_context}"
+            # Construct full prompt: STATIC first (cached), DYNAMIC last (not cached)
+            full_task = f"{static_context}{dynamic_task}{escalation_context}"
             safe_prompt = shlex.quote(full_task)
 
             # Construct command with model substitution
