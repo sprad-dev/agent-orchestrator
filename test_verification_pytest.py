@@ -107,3 +107,59 @@ test_example.py ..F.F.....                                               [100%]
     
     assert valid is True
     assert '10 test' in message.lower()
+
+
+def test_test_count_check_runs_on_failed_tests():
+    """Critical: Test count check must run even when tests fail to detect test deletion."""
+    import tempfile
+    from pathlib import Path
+    from src.verification.runner import VerificationRunner
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.baseline') as f:
+        baseline_path = f.name
+        Path(baseline_path).unlink()
+        
+        # Create a runner that will "run" pytest with simulated failing tests
+        runner = VerificationRunner(verify_cmd="echo 'mock pytest'", baseline_path=baseline_path)
+        
+        # Simulate pytest output with 10 tests but some failures
+        pytest_output_10_tests = """
+============================= test session starts ==============================
+collected 10 items
+
+test_example.py ..F.F.....                                               [100%]
+
+============================ 8 passed, 2 failed in 0.45s ====================
+"""
+        
+        # First, manually set up baseline with 10 tests
+        from src.verification.test_count import check_test_count
+        check_test_count(10, baseline_path)
+        
+        # Now simulate a run where tests were deleted (5 tests) and tests fail
+        pytest_output_5_tests = """
+============================= test session starts ==============================
+collected 5 items
+
+test_example.py F....                                                    [100%]
+
+============================ 4 passed, 1 failed in 0.23s ===================
+"""
+        
+        # Manually test the logic by checking if test count validation would catch this
+        from src.verification.pytest_validator import parse_test_count, validate_pytest_ran
+        
+        # First verify pytest_valid would be True (tests were collected)
+        pytest_valid, _ = validate_pytest_ran(pytest_output_5_tests)
+        assert pytest_valid is True, "Pytest validation should pass - tests were collected"
+        
+        # Then verify test count check would catch the deletion
+        test_count = parse_test_count(pytest_output_5_tests)
+        assert test_count == 5
+        
+        count_passed, count_msg = check_test_count(test_count, baseline_path)
+        assert count_passed is False, "Test count check should FAIL - tests were deleted (10 -> 5)"
+        assert 'decreased' in count_msg.lower()
+        assert '10 -> 5' in count_msg
+        
+        Path(baseline_path).unlink()

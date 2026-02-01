@@ -3,6 +3,7 @@
 import pytest
 import tempfile
 import json
+import os
 from pathlib import Path
 from src.verification.test_count import check_test_count
 
@@ -129,3 +130,47 @@ def test_missing_baseline_creates_new():
     assert 'created' in message.lower()
     
     Path(baseline_path).unlink()
+
+
+def test_permission_error_on_baseline_creation():
+    """Permission errors when creating baseline should be handled gracefully."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        readonly_dir = Path(tmpdir) / "readonly"
+        readonly_dir.mkdir()
+        os.chmod(readonly_dir, 0o444)  # Read-only directory
+        
+        baseline_path = readonly_dir / "baseline"
+        
+        try:
+            passed, message = check_test_count(10, str(baseline_path))
+            
+            # Should fail gracefully with error message
+            assert passed is False
+            assert 'Failed to write baseline' in message or 'Permission' in message
+        finally:
+            # Cleanup: restore permissions
+            os.chmod(readonly_dir, 0o755)
+
+
+def test_permission_error_on_baseline_update():
+    """Permission errors when updating baseline should still allow the verification."""
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        baseline_path = f.name
+        
+        # Create baseline with 10 tests
+        check_test_count(10, baseline_path)
+        
+        # Make file read-only
+        os.chmod(baseline_path, 0o444)
+        
+        try:
+            # Increase to 15 tests - should pass but note update failed
+            passed, message = check_test_count(15, baseline_path)
+            
+            assert passed is True
+            assert '10 -> 15' in message
+            assert ('baseline update failed' in message.lower() or 'baseline updated' in message)
+        finally:
+            # Cleanup: restore permissions and remove
+            os.chmod(baseline_path, 0o644)
+            Path(baseline_path).unlink()

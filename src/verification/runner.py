@@ -46,6 +46,7 @@ class VerificationRunner:
         output_lines.append(pytest_output)
         
         # L3: Validate pytest actually ran
+        pytest_valid = True
         if self.enable_pytest_validation:
             pytest_valid, pytest_msg = self.validate_pytest_output(pytest_output)
             if not pytest_valid:
@@ -53,8 +54,8 @@ class VerificationRunner:
                 return False, output
             output_lines.append(f"✓ L3 Pytest validation: {pytest_msg}")
         
-        # L3: Test count check (if pytest passed)
-        if self.enable_test_count_check and passed:
+        # L3: Test count check (runs regardless of test pass/fail to detect test deletion)
+        if self.enable_test_count_check and pytest_valid:
             test_count = parse_test_count(pytest_output)
             count_passed, count_msg = self.run_test_count_check(test_count)
             if not count_passed:
