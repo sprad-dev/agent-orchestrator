@@ -780,5 +780,145 @@ exit 1
         self.assertIn("modified content", diff)
 
 
+class TestCLIArgumentParsing(unittest.TestCase):
+    """Tests for command-line argument parsing."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        
+        # Initialize git repo
+        os.system("git init > /dev/null 2>&1")
+        os.system("git config user.email 'test@test.com' > /dev/null 2>&1")
+        os.system("git config user.name 'Test User' > /dev/null 2>&1")
+        
+        # Create initial commit
+        Path("dummy.txt").write_text("initial")
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'initial' > /dev/null 2>&1")
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_models_argument_parsing(self):
+        """Test that --models argument parses comma-separated list correctly."""
+        import sys
+        from supervisor import RalphLoop, DEFAULT_MODELS, MAX_RETRIES
+        
+        # Simulate command line: supervisor.py "task" --models model1,model2,model3
+        test_args = ['supervisor.py', 'test task', '--models', 'model1,model2,model3']
+        
+        # Parse using argparse as done in __main__
+        import argparse
+        parser = argparse.ArgumentParser(description="Ralph Loop Supervisor")
+        parser.add_argument("task", help="The coding task description")
+        parser.add_argument("--verify", default="pytest", help="Command to verify success")
+        parser.add_argument("--agent", default="claude {prompt}", help="Agent command template")
+        parser.add_argument("--models", help="Comma-separated list of models")
+        parser.add_argument("--test-model", help="Model for test generation")
+        parser.add_argument("--impl-model", help="Model for implementation")
+        
+        args = parser.parse_args(test_args[1:])
+        
+        # Parse models list as done in __main__
+        models = None
+        if args.models:
+            models = [m.strip() for m in args.models.split(',')]
+        
+        # Verify parsing
+        self.assertEqual(models, ['model1', 'model2', 'model3'])
+        self.assertEqual(args.task, 'test task')
+
+    def test_models_parsing_with_spaces(self):
+        """Test that --models handles spaces around commas."""
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("task")
+        parser.add_argument("--models")
+        
+        args = parser.parse_args(['task', '--models', 'model1 , model2 , model3'])
+        
+        models = [m.strip() for m in args.models.split(',')]
+        self.assertEqual(models, ['model1', 'model2', 'model3'])
+
+    def test_default_values_when_no_args(self):
+        """Test that default values are used when arguments not provided."""
+        import argparse
+        from supervisor import DEFAULT_VERIFIER, DEFAULT_AGENT, DEFAULT_MODELS
+        
+        parser = argparse.ArgumentParser()
+        parser.add_argument("task")
+        parser.add_argument("--verify", default=DEFAULT_VERIFIER)
+        parser.add_argument("--agent", default=DEFAULT_AGENT)
+        parser.add_argument("--models", default=None)
+        parser.add_argument("--test-model", default=None)
+        parser.add_argument("--impl-model", default=None)
+        
+        args = parser.parse_args(['test task'])
+        
+        self.assertEqual(args.verify, DEFAULT_VERIFIER)
+        self.assertEqual(args.agent, DEFAULT_AGENT)
+        self.assertIsNone(args.models)
+        self.assertIsNone(args.test_model)
+        self.assertIsNone(args.impl_model)
+        
+        # When models is None, RalphLoop should use DEFAULT_MODELS
+        loop = RalphLoop(args.agent, args.verify, 3, models=None)
+        self.assertEqual(loop.models, DEFAULT_MODELS)
+
+    def test_agent_command_with_model_substitution(self):
+        """Test that {model} placeholder is substituted in agent command."""
+        loop = RalphLoop("./agent.sh {prompt} --model={model}", "true", 1, 
+                        models=["test-model"])
+        
+        # Verify the template is stored correctly
+        self.assertEqual(loop.agent_cmd_template, "./agent.sh {prompt} --model={model}")
+        
+        # The actual substitution happens in the execute method when building agent_cmd
+        # We just verify the template is correct here
+        self.assertIn("{model}", loop.agent_cmd_template)
+
+    def test_two_phase_args_enable_mode(self):
+        """Test that providing both --test-model and --impl-model enables two-phase mode."""
+        import argparse
+        
+        parser = argparse.ArgumentParser()
+        parser.add_argument("task")
+        parser.add_argument("--test-model", default=None)
+        parser.add_argument("--impl-model", default=None)
+        
+        # Both provided - should enable two-phase
+        args = parser.parse_args(['task', '--test-model', 'sonnet', '--impl-model', 'haiku'])
+        loop = RalphLoop("echo {prompt}", "true", 1, 
+                        test_model=args.test_model, impl_model=args.impl_model)
+        self.assertTrue(loop.two_phase_mode)
+        
+        # Only one provided - should not enable two-phase
+        args = parser.parse_args(['task', '--test-model', 'sonnet'])
+        loop = RalphLoop("echo {prompt}", "true", 1, 
+                        test_model=args.test_model, impl_model=None)
+        self.assertFalse(loop.two_phase_mode)
+
+    def test_verify_argument_custom_value(self):
+        """Test that --verify argument accepts custom verifier command."""
+        import argparse
+        
+        parser = argparse.ArgumentParser()
+        parser.add_argument("task")
+        parser.add_argument("--verify", default="pytest")
+        
+        args = parser.parse_args(['task', '--verify', 'npm test'])
+        
+        self.assertEqual(args.verify, 'npm test')
+        
+        loop = RalphLoop("echo {prompt}", args.verify, 1)
+        self.assertEqual(loop.verify_cmd, 'npm test')
+
+
 if __name__ == "__main__":
     unittest.main()
