@@ -9,6 +9,7 @@ This optimizes cost by using expensive models only for design work.
 
 import os
 import shlex
+import time
 from typing import List, Optional
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
@@ -24,6 +25,7 @@ from src.preconditions import check_git_clean, check_agent_reachable, check_test
 
 
 DEFAULT_AGENT_TIMEOUT = 300  # 5 minutes
+DEFAULT_EXECUTION_TIMEOUT = 1800  # 30 minutes total execution time
 
 
 class TwoPhaseExecutor:
@@ -35,13 +37,31 @@ class TwoPhaseExecutor:
         verify_cmd: str,
         test_model: str,
         impl_model: str,
-        agent_timeout: int = DEFAULT_AGENT_TIMEOUT
+        agent_timeout: int = DEFAULT_AGENT_TIMEOUT,
+        execution_timeout: Optional[int] = DEFAULT_EXECUTION_TIMEOUT
     ) -> None:
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.test_model = test_model
         self.impl_model = impl_model
         self.agent_timeout = agent_timeout
+        self.execution_timeout = execution_timeout
+        self.start_time: Optional[float] = None
+
+    def _check_timeout(self) -> bool:
+        """Check if execution has exceeded timeout limit.
+
+        Returns:
+            True if timeout exceeded, False otherwise
+        """
+        if self.execution_timeout is None or self.start_time is None:
+            return False
+
+        elapsed = time.time() - self.start_time
+        if elapsed >= self.execution_timeout:
+            print(f"\n [!] EXECUTION TIMEOUT: {elapsed:.1f}s >= {self.execution_timeout}s")
+            return True
+        return False
 
     def run_test_generation_phase(self, task: str, context_files: Optional[List[str]]) -> bool:
         """Phase 1: Generate tests using smart model."""
@@ -67,6 +87,11 @@ REQUIREMENTS:
 Generate the test file(s) now."""
 
         agent_cmd = build_agent_command(self.agent_cmd_template, test_prompt, self.test_model)
+
+        # Check timeout before running agent
+        if self._check_timeout():
+            print(" [!] Timeout before test generation agent call.")
+            return False
 
         print(f" [1/3] Generating tests with {self.test_model} [timeout: {self.agent_timeout}s]...")
         agent_success, agent_output, _ = run_shell_with_retry(
@@ -139,6 +164,11 @@ Implement the code now."""
 
         agent_cmd = build_agent_command(self.agent_cmd_template, impl_prompt, self.impl_model)
 
+        # Check timeout before running agent
+        if self._check_timeout():
+            print(" [!] Timeout before implementation agent call.")
+            return False
+
         print(f" [2/4] Implementing with {self.impl_model} [timeout: {self.agent_timeout}s]...")
         agent_success, agent_output, _ = run_shell_with_retry(
             agent_cmd,
@@ -157,6 +187,11 @@ Implement the code now."""
 
         print(" [3/4] Changes detected:")
         print(get_diff_summary())
+
+        # Check timeout before verification
+        if self._check_timeout():
+            print(" [!] Timeout before verification.")
+            return False
 
         # Verify implementation
         print(f" [4/4] Running tests to verify implementation...")
@@ -177,11 +212,15 @@ Implement the code now."""
 
     def execute(self, task: str) -> bool:
         """Execute task using two-phase architect/intern approach."""
+        self.start_time = time.time()
+
         print(f"--- SUPERVISOR STARTED (TWO-PHASE MODE) ---")
         print(f"Target: {os.getcwd()}")
         print(f"Task: {task}")
         print(f"Test Model: {self.test_model}")
         print(f"Implementation Model: {self.impl_model}")
+        if self.execution_timeout:
+            print(f"Execution Timeout: {self.execution_timeout}s (wall-clock)")
 
         # Preconditions
         print("\n [Preconditions] Running safety checks...")
@@ -229,11 +268,21 @@ Implement the code now."""
         else:
             print(f" [Context] No context files specified or detected")
 
+        # Check timeout after preconditions
+        if self._check_timeout():
+            print(" [!] Timeout during preconditions. Aborting.")
+            return False
+
         # Safety snapshot
         print(" [Safety] Stashing clean state...")
         run_shell("git stash push -m 'Orchestrator Safety Snapshot'", ignore_error=True)
 
         # Phase 1: Test Generation
+        if self._check_timeout():
+            print("\n [!] Execution timeout exceeded before test generation. Aborting.")
+            run_shell("git stash pop", ignore_error=True)
+            return False
+
         if not self.run_test_generation_phase(task, context_files):
             print("\n [!] Test generation failed. Reverting...")
             run_shell("git reset --hard HEAD", ignore_error=True)
@@ -241,6 +290,13 @@ Implement the code now."""
             return False
 
         # Phase 2: Implementation
+        if self._check_timeout():
+            print("\n [!] Execution timeout exceeded before implementation. Reverting...")
+            run_shell("git reset --hard HEAD~1", ignore_error=True)
+            run_shell("git clean -fd", ignore_error=True)
+            run_shell("git stash pop", ignore_error=True)
+            return False
+
         if not self.run_implementation_phase(task, context_files):
             print("\n [!] Implementation failed. Reverting...")
             run_shell("git reset --hard HEAD~1", ignore_error=True)

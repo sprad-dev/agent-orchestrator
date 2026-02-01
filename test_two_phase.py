@@ -5,8 +5,9 @@ Tests the two-phase (architect/intern) execution strategy.
 """
 
 import unittest
+import time
 from unittest.mock import patch, MagicMock
-from src.models.two_phase import TwoPhaseExecutor, DEFAULT_AGENT_TIMEOUT
+from src.models.two_phase import TwoPhaseExecutor, DEFAULT_AGENT_TIMEOUT, DEFAULT_EXECUTION_TIMEOUT
 
 
 class TestTwoPhaseExecutorInitialization(unittest.TestCase):
@@ -589,6 +590,335 @@ class TestContextHandling(unittest.TestCase):
         # Verify context was built twice (once for each phase)
         self.assertEqual(mock_build_context.call_count, 2)
         mock_build_context.assert_called_with(["file1.py", "file2.py"])
+
+
+class TestExecutionTimeout(unittest.TestCase):
+    """Tests for orchestrator-level execution timeout enforcement in two-phase executor."""
+
+    def test_executor_default_execution_timeout(self):
+        """Test that executor uses default execution timeout."""
+        executor = TwoPhaseExecutor(
+            agent_cmd_template="agent {prompt}",
+            verify_cmd="pytest",
+            test_model="sonnet",
+            impl_model="haiku"
+        )
+        self.assertEqual(executor.execution_timeout, DEFAULT_EXECUTION_TIMEOUT)
+
+    def test_executor_custom_execution_timeout(self):
+        """Test that executor accepts custom execution timeout."""
+        executor = TwoPhaseExecutor(
+            agent_cmd_template="agent {prompt}",
+            verify_cmd="pytest",
+            test_model="sonnet",
+            impl_model="haiku",
+            execution_timeout=600
+        )
+        self.assertEqual(executor.execution_timeout, 600)
+
+    def test_executor_unlimited_execution_timeout(self):
+        """Test that executor accepts None for unlimited execution time."""
+        executor = TwoPhaseExecutor(
+            agent_cmd_template="agent {prompt}",
+            verify_cmd="pytest",
+            test_model="sonnet",
+            impl_model="haiku",
+            execution_timeout=None
+        )
+        self.assertIsNone(executor.execution_timeout)
+
+    @patch('src.models.two_phase.time.time')
+    @patch('src.models.two_phase.run_shell')
+    @patch('src.models.two_phase.check_git_clean')
+    @patch('src.models.two_phase.check_agent_reachable')
+    @patch('src.models.two_phase.parse_context_files')
+    @patch('src.models.two_phase.get_default_context_files')
+    def test_timeout_during_preconditions(
+        self,
+        mock_get_default,
+        mock_parse,
+        mock_check_agent,
+        mock_check_git,
+        mock_run_shell,
+        mock_time
+    ):
+        """Test that timeout during preconditions causes execution to fail."""
+        # Setup time mock to simulate timeout
+        mock_time.side_effect = [0, 1900]  # start time, then exceeded timeout
+
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+
+        executor = TwoPhaseExecutor(
+            "agent {prompt}",
+            "pytest",
+            test_model="sonnet",
+            impl_model="haiku",
+            execution_timeout=1800
+        )
+        result = executor.execute("Create add function")
+
+        self.assertFalse(result)
+
+    @patch('src.models.two_phase.time.time')
+    @patch('src.models.two_phase.run_shell_with_retry')
+    @patch('src.models.two_phase.run_shell')
+    @patch('src.models.two_phase.has_changes')
+    @patch('src.models.two_phase.get_diff_summary')
+    @patch('src.models.two_phase.build_static_context')
+    @patch('src.models.two_phase.check_git_clean')
+    @patch('src.models.two_phase.check_agent_reachable')
+    @patch('src.models.two_phase.parse_context_files')
+    @patch('src.models.two_phase.get_default_context_files')
+    def test_timeout_before_test_generation(
+        self,
+        mock_get_default,
+        mock_parse,
+        mock_check_agent,
+        mock_check_git,
+        mock_build_context,
+        mock_diff_summary,
+        mock_has_changes,
+        mock_run_shell,
+        mock_run_shell_retry,
+        mock_time
+    ):
+        """Test that timeout before test generation phase stops execution."""
+        # Setup time mock: start, after preconditions, before test gen (timeout)
+        mock_time.side_effect = [0, 100, 1900]
+
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+        mock_build_context.return_value = ("", 0)
+
+        def run_shell_side_effect(cmd, ignore_error=False, timeout=None):
+            if "git stash" in cmd:
+                return (True, "", 0)
+            else:
+                return (True, "Output", 0)
+
+        mock_run_shell.side_effect = run_shell_side_effect
+
+        executor = TwoPhaseExecutor(
+            "agent {prompt}",
+            "pytest",
+            test_model="sonnet",
+            impl_model="haiku",
+            execution_timeout=1800
+        )
+        result = executor.execute("Create add function")
+
+        self.assertFalse(result)
+        # Agent should not be called
+        mock_run_shell_retry.assert_not_called()
+        # Stash pop should be called (rollback)
+        stash_pop_calls = [c for c in mock_run_shell.call_args_list if "git stash pop" in str(c)]
+        self.assertEqual(len(stash_pop_calls), 1)
+
+    @patch('src.models.two_phase.time.time')
+    @patch('src.models.two_phase.run_shell_with_retry')
+    @patch('src.models.two_phase.run_shell')
+    @patch('src.models.two_phase.has_changes')
+    @patch('src.models.two_phase.get_diff_summary')
+    @patch('src.models.two_phase.build_static_context')
+    @patch('src.models.two_phase.check_git_clean')
+    @patch('src.models.two_phase.check_agent_reachable')
+    @patch('src.models.two_phase.parse_context_files')
+    @patch('src.models.two_phase.get_default_context_files')
+    def test_timeout_before_implementation_phase(
+        self,
+        mock_get_default,
+        mock_parse,
+        mock_check_agent,
+        mock_check_git,
+        mock_build_context,
+        mock_diff_summary,
+        mock_has_changes,
+        mock_run_shell,
+        mock_run_shell_retry,
+        mock_time
+    ):
+        """Test that timeout before implementation phase stops execution."""
+        # Setup time mock: start, preconditions, before test gen, after test gen, before impl (timeout)
+        mock_time.side_effect = [0, 100, 200, 300, 1900]
+
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+        mock_build_context.return_value = ("", 0)
+        mock_has_changes.return_value = True
+        mock_diff_summary.return_value = "test_example.py | 10 ++++++++"
+
+        def run_shell_side_effect(cmd, ignore_error=False, timeout=None):
+            if "git stash" in cmd or "git reset" in cmd or "git clean" in cmd:
+                return (True, "", 0)
+            elif "git add . && git commit" in cmd:
+                return (True, "Committed tests", 0)
+            else:
+                return (True, "Output", 0)
+
+        mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Test generated", 0)
+
+        executor = TwoPhaseExecutor(
+            "agent {prompt}",
+            "pytest",
+            test_model="sonnet",
+            impl_model="haiku",
+            execution_timeout=1800
+        )
+        result = executor.execute("Create add function")
+
+        self.assertFalse(result)
+        # Test generation agent should be called once
+        self.assertEqual(mock_run_shell_retry.call_count, 1)
+        # Should reset and stash pop (rollback)
+        reset_calls = [c for c in mock_run_shell.call_args_list if "git reset" in str(c)]
+        stash_pop_calls = [c for c in mock_run_shell.call_args_list if "git stash pop" in str(c)]
+        self.assertGreater(len(reset_calls), 0)
+        self.assertEqual(len(stash_pop_calls), 1)
+
+    @patch('src.models.two_phase.time.time')
+    @patch('src.models.two_phase.run_shell_with_retry')
+    @patch('src.models.two_phase.run_shell')
+    @patch('src.models.two_phase.has_changes')
+    @patch('src.models.two_phase.get_diff_summary')
+    @patch('src.models.two_phase.build_static_context')
+    @patch('src.models.two_phase.check_git_clean')
+    @patch('src.models.two_phase.check_agent_reachable')
+    @patch('src.models.two_phase.parse_context_files')
+    @patch('src.models.two_phase.get_default_context_files')
+    def test_timeout_before_verification(
+        self,
+        mock_get_default,
+        mock_parse,
+        mock_check_agent,
+        mock_check_git,
+        mock_build_context,
+        mock_diff_summary,
+        mock_has_changes,
+        mock_run_shell,
+        mock_run_shell_retry,
+        mock_time
+    ):
+        """Test that timeout before verification in implementation phase fails gracefully."""
+        # Setup time mock to timeout just before verification
+        # Calls: start, after precond, before test gen, before test agent, before impl phase, before impl agent, before verification (timeout)
+        mock_time.side_effect = [0, 100, 200, 300, 400, 500, 1900]
+
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+        mock_build_context.return_value = ("", 0)
+        mock_has_changes.return_value = True
+        mock_diff_summary.return_value = "changes"
+
+        call_count = [0]
+
+        def run_shell_side_effect(cmd, ignore_error=False, timeout=None):
+            if "git stash" in cmd or "git reset" in cmd or "git clean" in cmd:
+                return (True, "", 0)
+            elif "git add . && git commit" in cmd:
+                return (True, "Committed", 0)
+            elif "pytest" in cmd:
+                # First call during impl phase to get failure
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    return (False, "Tests fail", 1)
+                else:
+                    return (True, "Tests pass", 0)
+            else:
+                return (True, "Output", 0)
+
+        mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
+
+        executor = TwoPhaseExecutor(
+            "agent {prompt}",
+            "pytest",
+            test_model="sonnet",
+            impl_model="haiku",
+            execution_timeout=1800
+        )
+        result = executor.execute("Create add function")
+
+        self.assertFalse(result)
+        # Both agents should be called (test gen + impl)
+        self.assertEqual(mock_run_shell_retry.call_count, 2)
+
+    @patch('src.models.two_phase.run_shell_with_retry')
+    @patch('src.models.two_phase.run_shell')
+    @patch('src.models.two_phase.has_changes')
+    @patch('src.models.two_phase.get_diff_summary')
+    @patch('src.models.two_phase.build_static_context')
+    @patch('src.models.two_phase.check_git_clean')
+    @patch('src.models.two_phase.check_agent_reachable')
+    @patch('src.models.two_phase.parse_context_files')
+    @patch('src.models.two_phase.get_default_context_files')
+    def test_no_timeout_with_none(
+        self,
+        mock_get_default,
+        mock_parse,
+        mock_check_agent,
+        mock_check_git,
+        mock_build_context,
+        mock_diff_summary,
+        mock_has_changes,
+        mock_run_shell,
+        mock_run_shell_retry
+    ):
+        """Test that execution_timeout=None allows unlimited execution time."""
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+        mock_build_context.return_value = ("", 0)
+        mock_has_changes.return_value = True
+        mock_diff_summary.return_value = "changes"
+
+        call_count = [0]
+
+        def run_shell_side_effect(cmd, ignore_error=False, timeout=None):
+            if "git stash" in cmd:
+                return (True, "", 0)
+            elif "git add . && git commit" in cmd:
+                return (True, "Committed", 0)
+            elif "pytest" in cmd:
+                # First call during impl phase to get failure, second to verify
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    return (False, "Tests fail", 1)
+                else:
+                    return (True, "Tests pass", 0)
+            else:
+                return (True, "Output", 0)
+
+        mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
+
+        # Create executor with no timeout
+        executor = TwoPhaseExecutor(
+            "agent {prompt}",
+            "pytest",
+            test_model="sonnet",
+            impl_model="haiku",
+            execution_timeout=None
+        )
+        result = executor.execute("Create add function")
+
+        # Should succeed despite potentially long execution time
+        self.assertTrue(result)
 
 
 if __name__ == "__main__":

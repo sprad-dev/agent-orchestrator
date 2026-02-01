@@ -10,6 +10,7 @@ This optimizes cost by only using expensive models when needed.
 
 import os
 import shlex
+import time
 from typing import List, Optional
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
@@ -27,6 +28,7 @@ from src.preconditions import check_git_clean, check_agent_reachable, check_test
 
 DEFAULT_MODELS = ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"]
 DEFAULT_AGENT_TIMEOUT = 300  # 5 minutes
+DEFAULT_EXECUTION_TIMEOUT = 1800  # 30 minutes total execution time
 
 
 class EscalationExecutor:
@@ -37,19 +39,40 @@ class EscalationExecutor:
         agent_cmd_template: str,
         verify_cmd: str,
         models: Optional[List[str]] = None,
-        agent_timeout: int = DEFAULT_AGENT_TIMEOUT
+        agent_timeout: int = DEFAULT_AGENT_TIMEOUT,
+        execution_timeout: Optional[int] = DEFAULT_EXECUTION_TIMEOUT
     ) -> None:
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.models = models if models else DEFAULT_MODELS
         self.agent_timeout = agent_timeout
+        self.execution_timeout = execution_timeout
+
+    def _check_timeout(self, start_time: float) -> bool:
+        """Check if execution has exceeded timeout limit.
+
+        Returns:
+            True if timeout exceeded, False otherwise
+        """
+        if self.execution_timeout is None:
+            return False
+
+        elapsed = time.time() - start_time
+        if elapsed >= self.execution_timeout:
+            print(f"\n [!] EXECUTION TIMEOUT: {elapsed:.1f}s >= {self.execution_timeout}s")
+            return True
+        return False
 
     def execute(self, task: str) -> bool:
         """Execute task with escalation protocol."""
+        start_time = time.time()
+
         print(f"--- SUPERVISOR STARTED ---")
         print(f"Target: {os.getcwd()}")
         print(f"Task: {task}")
         print(f"Escalation Chain: {' -> '.join(self.models)}")
+        if self.execution_timeout:
+            print(f"Execution Timeout: {self.execution_timeout}s (wall-clock)")
 
         # Preconditions
         print("\n [Preconditions] Running safety checks...")
@@ -115,6 +138,11 @@ class EscalationExecutor:
         if context_size > 0:
             print(f" [Cache] Static context: {context_size:,} bytes (cacheable)")
 
+        # Check timeout after preconditions
+        if self._check_timeout(start_time):
+            print(" [!] Timeout during preconditions. Aborting.")
+            return False
+
         # Safety Snapshot
         print(" [1/5] Stashing clean state...")
         run_shell("git stash push -m 'Orchestrator Safety Snapshot'", ignore_error=True)
@@ -123,6 +151,12 @@ class EscalationExecutor:
 
         # Escalation Protocol: Try each model in sequence
         for model_idx, model in enumerate(self.models):
+            # Check timeout before starting new attempt
+            if self._check_timeout(start_time):
+                print(f"\n [!] Execution timeout exceeded before attempt {model_idx + 1}. Reverting.")
+                run_shell("git stash pop", ignore_error=True)
+                return False
+
             attempt = model_idx + 1
             print(f"\n--- ATTEMPT {attempt}/{len(self.models)} [Model: {model}] ---")
 
@@ -177,6 +211,14 @@ Fix the error and implement correctly. Think step-by-step."""
 
             print(" [3/5] Changes detected:")
             print(get_diff_summary())
+
+            # Check timeout before verification
+            if self._check_timeout(start_time):
+                print(f"\n [!] Execution timeout exceeded before verification. Reverting.")
+                run_shell("git reset --hard HEAD", ignore_error=True)
+                run_shell("git clean -fd", ignore_error=True)
+                run_shell("git stash pop", ignore_error=True)
+                return False
 
             # Verify
             print(f" [4/5] Running Verifier: {self.verify_cmd}")

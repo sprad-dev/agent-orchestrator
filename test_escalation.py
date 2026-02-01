@@ -5,8 +5,9 @@ Tests the escalation protocol execution strategy.
 """
 
 import unittest
+import time
 from unittest.mock import patch, MagicMock, call
-from src.models.escalation import EscalationExecutor, DEFAULT_MODELS, DEFAULT_AGENT_TIMEOUT
+from src.models.escalation import EscalationExecutor, DEFAULT_MODELS, DEFAULT_AGENT_TIMEOUT, DEFAULT_EXECUTION_TIMEOUT
 
 
 class TestEscalationExecutorInitialization(unittest.TestCase):
@@ -517,6 +518,272 @@ class TestContextHandling(unittest.TestCase):
         self.assertTrue(result)
         # Verify context was built with parsed files
         mock_build_context.assert_called_once_with(["file1.py", "file2.py"])
+
+
+class TestExecutionTimeout(unittest.TestCase):
+    """Tests for orchestrator-level execution timeout enforcement."""
+
+    def test_executor_default_execution_timeout(self):
+        """Test that executor uses default execution timeout."""
+        executor = EscalationExecutor(
+            agent_cmd_template="agent {prompt}",
+            verify_cmd="pytest"
+        )
+        self.assertEqual(executor.execution_timeout, DEFAULT_EXECUTION_TIMEOUT)
+
+    def test_executor_custom_execution_timeout(self):
+        """Test that executor accepts custom execution timeout."""
+        executor = EscalationExecutor(
+            agent_cmd_template="agent {prompt}",
+            verify_cmd="pytest",
+            execution_timeout=600
+        )
+        self.assertEqual(executor.execution_timeout, 600)
+
+    def test_executor_unlimited_execution_timeout(self):
+        """Test that executor accepts None for unlimited execution time."""
+        executor = EscalationExecutor(
+            agent_cmd_template="agent {prompt}",
+            verify_cmd="pytest",
+            execution_timeout=None
+        )
+        self.assertIsNone(executor.execution_timeout)
+
+    @patch('src.models.escalation.time.time')
+    @patch('src.models.escalation.run_shell_with_retry')
+    @patch('src.models.escalation.run_shell')
+    @patch('src.models.escalation.has_changes')
+    @patch('src.models.escalation.get_diff_summary')
+    @patch('src.models.escalation.check_git_clean')
+    @patch('src.models.escalation.check_agent_reachable')
+    @patch('src.models.escalation.check_tests_exist')
+    @patch('src.models.escalation.parse_context_files')
+    @patch('src.models.escalation.get_default_context_files')
+    @patch('src.models.escalation.build_static_context')
+    def test_timeout_during_preconditions(
+        self,
+        mock_build_context,
+        mock_get_default,
+        mock_parse,
+        mock_check_tests,
+        mock_check_agent,
+        mock_check_git,
+        mock_diff_summary,
+        mock_has_changes,
+        mock_run_shell,
+        mock_run_shell_retry,
+        mock_time
+    ):
+        """Test that timeout during preconditions causes execution to fail."""
+        # Setup time mock to simulate timeout
+        mock_time.side_effect = [0, 1900]  # start time, then exceeded timeout
+
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_check_tests.return_value = (True, "Collected 5 tests")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+        mock_build_context.return_value = ("", 0)
+
+        executor = EscalationExecutor(
+            "agent {prompt}",
+            "pytest",
+            execution_timeout=1800
+        )
+        result = executor.execute("Fix the bug")
+
+        self.assertFalse(result)
+        # Agent should not be called if timeout during preconditions
+        mock_run_shell_retry.assert_not_called()
+
+    @patch('src.models.escalation.time.time')
+    @patch('src.models.escalation.run_shell_with_retry')
+    @patch('src.models.escalation.run_shell')
+    @patch('src.models.escalation.has_changes')
+    @patch('src.models.escalation.get_diff_summary')
+    @patch('src.models.escalation.check_git_clean')
+    @patch('src.models.escalation.check_agent_reachable')
+    @patch('src.models.escalation.check_tests_exist')
+    @patch('src.models.escalation.parse_context_files')
+    @patch('src.models.escalation.get_default_context_files')
+    @patch('src.models.escalation.build_static_context')
+    def test_timeout_before_second_attempt(
+        self,
+        mock_build_context,
+        mock_get_default,
+        mock_parse,
+        mock_check_tests,
+        mock_check_agent,
+        mock_check_git,
+        mock_diff_summary,
+        mock_has_changes,
+        mock_run_shell,
+        mock_run_shell_retry,
+        mock_time
+    ):
+        """Test that timeout before second model attempt stops execution."""
+        # Setup time mock: start, after preconditions, after first attempt, before second attempt (timeout)
+        mock_time.side_effect = [0, 100, 600, 1900]
+
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_check_tests.return_value = (True, "Collected 5 tests")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+        mock_build_context.return_value = ("", 0)
+        mock_has_changes.return_value = True
+        mock_diff_summary.return_value = "1 file changed"
+
+        def run_shell_side_effect(cmd, ignore_error=False, timeout=None):
+            if "git stash" in cmd or "git reset" in cmd or "git clean" in cmd:
+                return (True, "", 0)
+            elif "pytest" in cmd:
+                return (False, "Tests failed", 1)  # First attempt fails
+            else:
+                return (True, "Output", 0)
+
+        mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
+
+        executor = EscalationExecutor(
+            "agent {prompt}",
+            "pytest",
+            models=["model1", "model2"],
+            execution_timeout=1800
+        )
+        result = executor.execute("Fix the bug")
+
+        self.assertFalse(result)
+        # Only first model should be tried
+        self.assertEqual(mock_run_shell_retry.call_count, 1)
+        # Stash pop should be called (rollback)
+        stash_pop_calls = [c for c in mock_run_shell.call_args_list if "git stash pop" in str(c)]
+        self.assertEqual(len(stash_pop_calls), 1)
+
+    @patch('src.models.escalation.time.time')
+    @patch('src.models.escalation.run_shell_with_retry')
+    @patch('src.models.escalation.run_shell')
+    @patch('src.models.escalation.has_changes')
+    @patch('src.models.escalation.get_diff_summary')
+    @patch('src.models.escalation.check_git_clean')
+    @patch('src.models.escalation.check_agent_reachable')
+    @patch('src.models.escalation.check_tests_exist')
+    @patch('src.models.escalation.parse_context_files')
+    @patch('src.models.escalation.get_default_context_files')
+    @patch('src.models.escalation.build_static_context')
+    def test_timeout_before_verification(
+        self,
+        mock_build_context,
+        mock_get_default,
+        mock_parse,
+        mock_check_tests,
+        mock_check_agent,
+        mock_check_git,
+        mock_diff_summary,
+        mock_has_changes,
+        mock_run_shell,
+        mock_run_shell_retry,
+        mock_time
+    ):
+        """Test that timeout before verification causes graceful failure."""
+        # Setup time mock: start, preconditions check, before loop, before verification check (timeout)
+        # The timeout check before verification happens after agent completes and changes are detected
+        mock_time.side_effect = [0, 100, 200, 1900]
+
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_check_tests.return_value = (True, "Collected 5 tests")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+        mock_build_context.return_value = ("", 0)
+        mock_has_changes.return_value = True
+        mock_diff_summary.return_value = "1 file changed"
+
+        def run_shell_side_effect(cmd, ignore_error=False, timeout=None):
+            if "git stash" in cmd or "git reset" in cmd or "git clean" in cmd:
+                return (True, "", 0)
+            else:
+                return (True, "Output", 0)
+
+        mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
+
+        executor = EscalationExecutor(
+            "agent {prompt}",
+            "pytest",
+            execution_timeout=1800
+        )
+        result = executor.execute("Fix the bug")
+
+        self.assertFalse(result)
+        # Agent should be called once
+        self.assertEqual(mock_run_shell_retry.call_count, 1)
+        # Should reset and stash pop (rollback)
+        reset_calls = [c for c in mock_run_shell.call_args_list if "git reset" in str(c)]
+        stash_pop_calls = [c for c in mock_run_shell.call_args_list if "git stash pop" in str(c)]
+        self.assertGreater(len(reset_calls), 0)
+        self.assertEqual(len(stash_pop_calls), 1)
+
+    @patch('src.models.escalation.run_shell_with_retry')
+    @patch('src.models.escalation.run_shell')
+    @patch('src.models.escalation.has_changes')
+    @patch('src.models.escalation.get_diff_summary')
+    @patch('src.models.escalation.check_git_clean')
+    @patch('src.models.escalation.check_agent_reachable')
+    @patch('src.models.escalation.check_tests_exist')
+    @patch('src.models.escalation.parse_context_files')
+    @patch('src.models.escalation.get_default_context_files')
+    @patch('src.models.escalation.build_static_context')
+    def test_no_timeout_with_none(
+        self,
+        mock_build_context,
+        mock_get_default,
+        mock_parse,
+        mock_check_tests,
+        mock_check_agent,
+        mock_check_git,
+        mock_diff_summary,
+        mock_has_changes,
+        mock_run_shell,
+        mock_run_shell_retry
+    ):
+        """Test that execution_timeout=None allows unlimited execution time."""
+        # Setup mocks
+        mock_check_git.return_value = (True, "Working tree is clean")
+        mock_check_agent.return_value = (True, "Agent is reachable")
+        mock_check_tests.return_value = (True, "Collected 5 tests")
+        mock_parse.return_value = None
+        mock_get_default.return_value = []
+        mock_build_context.return_value = ("", 0)
+        mock_has_changes.return_value = True
+        mock_diff_summary.return_value = "1 file changed"
+
+        def run_shell_side_effect(cmd, ignore_error=False, timeout=None):
+            if "git stash" in cmd:
+                return (True, "", 0)
+            elif "git add . && git commit" in cmd:
+                return (True, "Committed", 0)
+            elif "pytest" in cmd:
+                return (True, "All tests passed", 0)
+            else:
+                return (True, "Output", 0)
+
+        mock_run_shell.side_effect = run_shell_side_effect
+        mock_run_shell_retry.return_value = (True, "Agent output", 0)
+
+        # Create executor with no timeout
+        executor = EscalationExecutor(
+            "agent {prompt}",
+            "pytest",
+            execution_timeout=None
+        )
+        result = executor.execute("Fix the bug")
+
+        # Should succeed despite potentially long execution time
+        self.assertTrue(result)
 
 
 if __name__ == "__main__":
