@@ -13,19 +13,21 @@ import shlex
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
 from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content
-from src.preconditions import check_git_clean
+from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist
 
 
 DEFAULT_MODELS = ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"]
+DEFAULT_AGENT_TIMEOUT = 300  # 5 minutes
 
 
 class EscalationExecutor:
     """Executes tasks using model escalation on failure."""
 
-    def __init__(self, agent_cmd_template, verify_cmd, models=None):
+    def __init__(self, agent_cmd_template, verify_cmd, models=None, agent_timeout=DEFAULT_AGENT_TIMEOUT):
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.models = models if models else DEFAULT_MODELS
+        self.agent_timeout = agent_timeout
 
     def execute(self, task):
         """Execute task with escalation protocol."""
@@ -34,12 +36,30 @@ class EscalationExecutor:
         print(f"Task: {task}")
         print(f"Escalation Chain: {' -> '.join(self.models)}")
 
-        # Precondition: Check git working tree is clean
+        # Preconditions
+        print("\n [Preconditions] Running safety checks...")
+        
+        # Check 1: Git working tree is clean
         passed, message = check_git_clean()
         if not passed:
-            print(f"\n [X] PRECONDITION FAILED: {message}")
+            print(f" [X] Git clean check failed: {message}")
             print("     Commit or stash changes before running supervisor.")
             return False
+        print(f" [✓] {message}")
+        
+        # Check 2: Agent is reachable
+        passed, message = check_agent_reachable(self.agent_cmd_template)
+        if not passed:
+            print(f" [X] Agent reachable check failed: {message}")
+            return False
+        print(f" [✓] {message}")
+        
+        # Check 3: Tests exist and are collectible
+        passed, message = check_tests_exist(self.verify_cmd)
+        if not passed:
+            print(f" [X] Tests exist check failed: {message}")
+            return False
+        print(f" [✓] {message}")
 
         # Parse context files from task
         context_files = parse_context_files(task)
@@ -95,8 +115,8 @@ Fix the error and implement correctly. Think step-by-step."""
             safe_prompt = shlex.quote(full_task)
             agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", model)
 
-            print(f" [2/5] Unleashing Agent ({model})...")
-            agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True)
+            print(f" [2/5] Unleashing Agent ({model}) [timeout: {self.agent_timeout}s]...")
+            agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)
 
             if not has_changes():
                 print(" [X] Agent made NO changes to repository!")

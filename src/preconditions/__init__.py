@@ -7,9 +7,10 @@ Safety checks before agent execution:
 - Timeout configuration
 """
 
-from .checks import check_git_clean, check_tests_exist
+from .checks import check_git_clean, check_tests_exist, check_agent_reachable
 
 __all__ = [
     "check_git_clean",
     "check_tests_exist",
+    "check_agent_reachable",
 ]

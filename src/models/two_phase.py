@@ -12,17 +12,21 @@ import shlex
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
 from src.shell import run_shell, has_changes, get_diff_summary
-from src.preconditions import check_git_clean
+from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist
+
+
+DEFAULT_AGENT_TIMEOUT = 300  # 5 minutes
 
 
 class TwoPhaseExecutor:
     """Executes tasks using architect/intern model split."""
 
-    def __init__(self, agent_cmd_template, verify_cmd, test_model, impl_model):
+    def __init__(self, agent_cmd_template, verify_cmd, test_model, impl_model, agent_timeout=DEFAULT_AGENT_TIMEOUT):
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.test_model = test_model
         self.impl_model = impl_model
+        self.agent_timeout = agent_timeout
 
     def run_test_generation_phase(self, task, context_files):
         """Phase 1: Generate tests using smart model."""
@@ -50,8 +54,8 @@ Generate the test file(s) now."""
         safe_prompt = shlex.quote(test_prompt)
         agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", self.test_model)
 
-        print(f" [1/3] Generating tests with {self.test_model}...")
-        agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True)
+        print(f" [1/3] Generating tests with {self.test_model} [timeout: {self.agent_timeout}s]...")
+        agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)
 
         if not has_changes():
             print(" [X] Test generation produced NO changes!")
@@ -113,8 +117,8 @@ Implement the code now."""
         safe_prompt = shlex.quote(impl_prompt)
         agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", self.impl_model)
 
-        print(f" [2/4] Implementing with {self.impl_model}...")
-        agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True)
+        print(f" [2/4] Implementing with {self.impl_model} [timeout: {self.agent_timeout}s]...")
+        agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)
 
         if not has_changes():
             print(" [X] Implementation produced NO changes!")
@@ -148,12 +152,25 @@ Implement the code now."""
         print(f"Test Model: {self.test_model}")
         print(f"Implementation Model: {self.impl_model}")
 
-        # Precondition: Check git working tree is clean
+        # Preconditions
+        print("\n [Preconditions] Running safety checks...")
+        
+        # Check 1: Git working tree is clean
         passed, message = check_git_clean()
         if not passed:
-            print(f"\n [X] PRECONDITION FAILED: {message}")
+            print(f" [X] Git clean check failed: {message}")
             print("     Commit or stash changes before running supervisor.")
             return False
+        print(f" [✓] {message}")
+        
+        # Check 2: Agent is reachable
+        passed, message = check_agent_reachable(self.agent_cmd_template)
+        if not passed:
+            print(f" [X] Agent reachable check failed: {message}")
+            return False
+        print(f" [✓] {message}")
+        
+        # Note: Skip tests_exist check in two-phase mode - tests are generated in phase 1
 
         # Parse context files from task
         context_files = parse_context_files(task)
