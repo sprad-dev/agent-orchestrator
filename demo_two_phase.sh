@@ -18,8 +18,8 @@ echo ""
 
 ./supervisor.py \
   "Create a string_utils.py module with a reverse_string() function that reverses a string" \
-  --test-model "claude-3-5-sonnet" \
-  --impl-model "claude-3-haiku" \
+  --test-model "claude-4.5-sonnet" \
+  --impl-model "claude-4.5-haiku" \
   --agent "./mock_agent.sh {prompt}" \
   --verify "pytest test_string_utils.py"
 

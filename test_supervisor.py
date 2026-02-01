@@ -12,7 +12,7 @@ class TestEscalationProtocol(unittest.TestCase):
     def test_default_models(self):
         """Test that default models are set correctly."""
         loop = RalphLoop("echo {prompt}", "true", 3)
-        self.assertEqual(loop.models, ["claude-3-haiku", "claude-3-haiku", "claude-3-5-sonnet"])
+        self.assertEqual(loop.models, ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"])
 
     def test_custom_models(self):
         """Test that custom models can be provided."""

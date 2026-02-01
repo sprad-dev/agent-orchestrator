@@ -18,8 +18,8 @@ The supervisor supports a two-phase execution model where an expensive "architec
 ```bash
 # Two-phase mode with smart test generation and cheap implementation
 ./supervisor.py "Add user authentication" \
-  --test-model "claude-3-5-sonnet" \
-  --impl-model "claude-3-haiku"
+  --test-model "claude-4.5-sonnet" \
+  --impl-model "claude-4.5-haiku"
 ```
 
 **Benefits:**
@@ -40,10 +40,10 @@ The supervisor implements intelligent model escalation - starting with cheaper m
 ./supervisor.py "Add feature"
 
 # Custom escalation chain
-./supervisor.py "Fix bug" --models "claude-3-haiku,claude-3-5-sonnet,claude-opus-4"
+./supervisor.py "Fix bug" --models "claude-4.5-haiku,claude-4.5-sonnet,claude-4.5-opus"
 
 # Single model (no escalation)
-./supervisor.py "Simple fix" --models "claude-3-haiku"
+./supervisor.py "Simple fix" --models "claude-4.5-haiku"
 ```
 
 **Benefits:**

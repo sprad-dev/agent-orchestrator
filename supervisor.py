@@ -13,7 +13,7 @@ from pathlib import Path
 DEFAULT_AGENT = "claude {prompt}"
 DEFAULT_VERIFIER = "pytest"
 MAX_RETRIES = 3
-DEFAULT_MODELS = ["claude-3-haiku", "claude-3-haiku", "claude-3-5-sonnet"]
+DEFAULT_MODELS = ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"]
 
 class RalphLoop:
     def __init__(self, agent_cmd_template, verify_cmd, max_retries, models=None, test_model=None, impl_model=None):
