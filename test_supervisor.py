@@ -287,11 +287,14 @@ exit 1
         
         result = loop.execute("test task")
         
-        # Check that second model received escalation context
+        # Check that second model received escalation context with diff-only feedback
         self.assertTrue(result)
         if Path("/tmp/test_prompts/log.txt").exists():
             log = Path("/tmp/test_prompts/log.txt").read_text()
-            self.assertIn("PREVIOUS ATTEMPT FAILED", log)
+            # New diff-only feedback format
+            self.assertIn("Previous attempt failed", log)
+            self.assertIn("=== GOAL ===", log)
+            self.assertIn("=== ERROR OUTPUT ===", log)
             self.assertIn("Think step-by-step", log)
 
     def test_final_failure_all_models_exhausted(self):
@@ -632,6 +635,149 @@ fi
         # Both test and implementation should be rolled back
         self.assertFalse(Path("test_fail.py").exists())
         self.assertFalse(Path("output.py").exists())
+
+
+class TestDiffOnlyFeedback(unittest.TestCase):
+    """Tests for diff-only feedback loop to prevent context rot."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        
+        # Initialize git repo
+        os.system("git init > /dev/null 2>&1")
+        os.system("git config user.email 'test@test.com' > /dev/null 2>&1")
+        os.system("git config user.name 'Test User' > /dev/null 2>&1")
+        
+        # Create initial commit
+        Path("dummy.txt").write_text("initial")
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'initial' > /dev/null 2>&1")
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_retry_uses_diff_only_format(self):
+        """Test that retry attempts use diff-only feedback format."""
+        # Agent that logs prompts to a file
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+mkdir -p /tmp/diff_test_prompts
+ATTEMPT_NUM=$(ls /tmp/diff_test_prompts/ | wc -l)
+echo "=== ATTEMPT $ATTEMPT_NUM ===" >> /tmp/diff_test_prompts/attempt_${ATTEMPT_NUM}.txt
+echo "$1" >> /tmp/diff_test_prompts/attempt_${ATTEMPT_NUM}.txt
+echo "code change" > output.txt
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        # Verifier that always fails (we just want to check prompt format)
+        verify_script = Path("verify.sh")
+        verify_script.write_text("""#!/bin/bash
+echo "Test failed - checking prompt format only"
+exit 1
+""")
+        verify_script.chmod(0o755)
+        
+        os.system("git add agent.sh verify.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add scripts' > /dev/null 2>&1")
+        
+        # Clean up previous test logs
+        os.system("rm -rf /tmp/diff_test_prompts")
+        
+        models = ["model-1", "model-2"]
+        loop = RalphLoop("./agent.sh {prompt} {model}", "./verify.sh", 2, models=models)
+        
+        # Execute will fail, but that's OK - we just want to check the prompts
+        loop.execute("test task")
+        
+        # Verify first attempt doesn't have diff-only format
+        self.assertTrue(Path("/tmp/diff_test_prompts/attempt_0.txt").exists())
+        attempt_1 = Path("/tmp/diff_test_prompts/attempt_0.txt").read_text()
+        self.assertNotIn("=== GOAL ===", attempt_1)
+        self.assertNotIn("=== CODE ATTEMPTED", attempt_1)
+        
+        # Verify second attempt has diff-only format
+        self.assertTrue(Path("/tmp/diff_test_prompts/attempt_1.txt").exists())
+        attempt_2 = Path("/tmp/diff_test_prompts/attempt_1.txt").read_text()
+        self.assertIn("Previous attempt failed", attempt_2)
+        self.assertIn("=== GOAL ===", attempt_2)
+        self.assertIn("=== ERROR OUTPUT ===", attempt_2)
+        self.assertIn("test task", attempt_2)  # Original task preserved
+
+    def test_retry_excludes_conversation_history(self):
+        """Test that retry prompts maintain flat token count with static context."""
+        # Create files to serve as static context
+        Path("context1.py").write_text("# " + "A" * 500)
+        Path("context2.py").write_text("# " + "B" * 500)
+        os.system("git add *.py > /dev/null 2>&1")
+        os.system("git commit -m 'add context files' > /dev/null 2>&1")
+        
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+mkdir -p /tmp/prompt_sizes
+ATTEMPT_NUM=$(ls /tmp/prompt_sizes/ | wc -l)
+echo ${#1} > /tmp/prompt_sizes/size_${ATTEMPT_NUM}.txt
+echo "change $ATTEMPT_NUM" > output.txt
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        verify_script = Path("verify.sh")
+        verify_script.write_text("""#!/bin/bash
+COMMITS=$(git log --oneline | grep -c "Agent" || echo 0)
+if [ "$COMMITS" -ge 1 ]; then
+    exit 0
+fi
+# Generate longer error to test context growth
+python3 -c "print('ERROR: ' + 'Long error message. ' * 50)"
+exit 1
+""")
+        verify_script.chmod(0o755)
+        
+        os.system("git add agent.sh verify.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add scripts' > /dev/null 2>&1")
+        os.system("rm -rf /tmp/prompt_sizes")
+        
+        # Use context_files to include static context in prompts
+        task_with_context = "Fix the bug [context: context1.py, context2.py]"
+        
+        models = ["model-1", "model-2"]
+        loop = RalphLoop("./agent.sh {prompt} {model}", "./verify.sh", 2, models=models)
+        
+        loop.execute(task_with_context)
+        
+        # Read prompt sizes
+        if Path("/tmp/prompt_sizes/size_0.txt").exists() and Path("/tmp/prompt_sizes/size_1.txt").exists():
+            size_1 = int(Path("/tmp/prompt_sizes/size_0.txt").read_text().strip())
+            size_2 = int(Path("/tmp/prompt_sizes/size_1.txt").read_text().strip())
+            
+            # With diff-only feedback, second attempt should be much smaller
+            # (no static context reused, only goal + diff + error)
+            # First attempt has full context (~1000+ bytes), second is minimal (~500 bytes)
+            # So we expect size_2 < size_1
+            self.assertLess(size_2, size_1 * 1.2, 
+                          f"Expected flat or decreasing token count, got size_1={size_1}, size_2={size_2}")
+
+    def test_get_diff_content_method(self):
+        """Test that get_diff_content returns git diff output."""
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # Make a change
+        Path("test_file.txt").write_text("original content")
+        os.system("git add test_file.txt > /dev/null 2>&1")
+        os.system("git commit -m 'add file' > /dev/null 2>&1")
+        
+        Path("test_file.txt").write_text("modified content")
+        
+        diff = loop.get_diff_content()
+        self.assertIn("test_file.txt", diff)
+        self.assertIn("modified content", diff)
 
 
 if __name__ == "__main__":

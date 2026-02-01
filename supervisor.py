@@ -162,6 +162,11 @@ class RalphLoop:
         success, output, _ = self.run_shell("git diff --stat", ignore_error=True)
         return output if success else "Unable to get diff"
 
+    def get_diff_content(self):
+        """Get the full diff of current changes."""
+        success, output, _ = self.run_shell("git diff", ignore_error=True)
+        return output if success else "Unable to get diff"
+
     def run_test_generation_phase(self, task, context_files):
         """Phase 1: Generate tests using smart model."""
         print(f"\n=== 🧠 TEST GENERATION PHASE (Model: {self.test_model}) ===")
@@ -362,14 +367,35 @@ Implement the code now."""
 
             # 2. Run Agent with context
             # CACHING OPTIMIZATION: Static context first, dynamic task/errors last
-            dynamic_task = f"\n=== SPECIFIC TASK (Dynamic) ===\n{task}"
             
-            escalation_context = ""
-            if last_error:
-                escalation_context = f"\n\nPREVIOUS ATTEMPT FAILED with error:\n{last_error}\n\nThink step-by-step and fix this."
+            # First attempt: full context
+            # Subsequent attempts: diff-only feedback to prevent token growth
+            if attempt == 1:
+                # Initial attempt - include full static context
+                dynamic_task = f"\n=== SPECIFIC TASK (Dynamic) ===\n{task}"
+                full_task = f"{static_context}{dynamic_task}"
+            else:
+                # RETRY ATTEMPT: Use diff-only feedback
+                # Prevents linear token growth (N, 2N, 3N...)
+                # Send only: goal + diff + error (flat ~1000 tokens each retry)
+                print(f" [Diff-Only] 🔄 Using minimal retry context (no conversation history)")
+                
+                diff_content = self.get_diff_content()
+                retry_prompt = f"""Previous attempt failed. Using diff-only feedback to prevent context rot.
+
+=== GOAL ===
+{task}
+
+=== CODE ATTEMPTED (Git Diff) ===
+{diff_content if diff_content else "(No changes were made)"}
+
+=== ERROR OUTPUT ===
+{last_error[:1000] if last_error else "No error captured"}
+
+Fix the error and implement correctly. Think step-by-step."""
+                
+                full_task = retry_prompt
             
-            # Construct full prompt: STATIC first (cached), DYNAMIC last (not cached)
-            full_task = f"{static_context}{dynamic_task}{escalation_context}"
             safe_prompt = shlex.quote(full_task)
 
             # Construct command with model substitution
