@@ -1,0 +1,23 @@
+# Example verification configuration
+# Place this file as verification.toml, .verification.toml, or in pyproject.toml
+
+[verification.layers]
+# Enable/disable verification layers
+syntax_check = true
+test_count_check = true
+pytest_validation = true
+
+[verification.thresholds]
+# Minimum test count required (0 = no minimum, just check for decrease)
+min_test_count = 0
+
+# Minimum coverage percentage required (0 = no requirement)
+min_coverage_percent = 0
+
+[verification.baselines]
+# Path to test baseline file for tracking test count
+test_baseline_path = ".test_baseline"
+
+[verification.commands]
+# Command to run for verification
+verify_cmd = "pytest"
