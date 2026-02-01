@@ -1,8 +1,32 @@
 # Agent Orchestrator
 
-A specialized CLI tool for supervising AI coding agents with surgical context management.
+A specialized CLI tool for supervising AI coding agents with surgical context management and intelligent model escalation.
 
 ## Features
+
+### Escalation Protocol (Try-Catch Pattern)
+
+The supervisor implements intelligent model escalation - starting with cheaper models and automatically escalating to more powerful models only on failure.
+
+**Usage:**
+
+```bash
+# Use default escalation chain (haiku → haiku → sonnet)
+./supervisor.py "Add feature"
+
+# Custom escalation chain
+./supervisor.py "Fix bug" --models "claude-3-haiku,claude-3-5-sonnet,claude-opus-4"
+
+# Single model (no escalation)
+./supervisor.py "Simple fix" --models "claude-3-haiku"
+```
+
+**Benefits:**
+
+- **Cost optimization**: Cheap models handle simple tasks (80%+ of work)
+- **Smart fallback**: Escalates automatically when cheap models fail
+- **Early exit**: Stops at first success, doesn't waste expensive tokens
+- **Transparent**: Logs show which model solved the task
 
 ### Context Pruning (Malloc Discipline)
 

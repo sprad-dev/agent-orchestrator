@@ -6,6 +6,27 @@ from pathlib import Path
 from supervisor import RalphLoop
 
 
+class TestEscalationProtocol(unittest.TestCase):
+    """Tests for model escalation functionality."""
+
+    def test_default_models(self):
+        """Test that default models are set correctly."""
+        loop = RalphLoop("echo {prompt}", "true", 3)
+        self.assertEqual(loop.models, ["claude-3-haiku", "claude-3-haiku", "claude-3-5-sonnet"])
+
+    def test_custom_models(self):
+        """Test that custom models can be provided."""
+        custom_models = ["model-a", "model-b", "model-c"]
+        loop = RalphLoop("echo {prompt}", "true", 3, models=custom_models)
+        self.assertEqual(loop.models, custom_models)
+
+    def test_models_list_length(self):
+        """Test that escalation tries each model."""
+        models = ["haiku", "sonnet"]
+        loop = RalphLoop("echo {prompt}", "true", 3, models=models)
+        self.assertEqual(len(loop.models), 2)
+
+
 class TestContextPruning(unittest.TestCase):
     """Tests for context pruning functionality."""
 

@@ -13,12 +13,14 @@ from pathlib import Path
 DEFAULT_AGENT = "claude {prompt}"
 DEFAULT_VERIFIER = "pytest"
 MAX_RETRIES = 3
+DEFAULT_MODELS = ["claude-3-haiku", "claude-3-haiku", "claude-3-5-sonnet"]
 
 class RalphLoop:
-    def __init__(self, agent_cmd_template, verify_cmd, max_retries):
+    def __init__(self, agent_cmd_template, verify_cmd, max_retries, models=None):
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.max_retries = max_retries
+        self.models = models if models else DEFAULT_MODELS
 
     def parse_context_files(self, task):
         """Parse context_files from task specification.
@@ -123,6 +125,7 @@ class RalphLoop:
         print(f"--- 🕵️ SUPERVISOR STARTED ---")
         print(f"Target: {os.getcwd()}")
         print(f"Task: {task}")
+        print(f"Escalation Chain: {' → '.join(self.models)}")
 
         # Parse context files from task
         context_files = self.parse_context_files(task)
@@ -141,24 +144,27 @@ class RalphLoop:
 
         last_error = None
 
-        for attempt in range(1, self.max_retries + 1):
-            print(f"\n--- 🔄 ATTEMPT {attempt}/{self.max_retries} ---")
+        # Escalation Protocol: Try each model in sequence
+        for model_idx, model in enumerate(self.models):
+            attempt = model_idx + 1
+            print(f"\n--- 🔄 ATTEMPT {attempt}/{len(self.models)} [Model: {model}] ---")
 
             # 2. Run Agent with context
-            error_context = f". Fix previous error: {last_error}" if last_error else ""
+            escalation_context = ""
+            if last_error:
+                escalation_context = f"\n\nPREVIOUS ATTEMPT FAILED with error:\n{last_error}\n\nThink step-by-step and fix this."
             
             # Build file context
             file_context = self.build_context(context_files)
             
             # Construct full prompt with context
-            full_task = f"{file_context}\n{task}{error_context}"
+            full_task = f"{file_context}\n{task}{escalation_context}"
             safe_prompt = shlex.quote(full_task)
 
-            # Construct command (handling the format replacement manually for safety)
-            # We replace only the {prompt} placeholder
-            agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt)
+            # Construct command with model substitution
+            agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", model)
 
-            print(" [2/5] 🤖 Unleashing Agent...")
+            print(f" [2/5] 🤖 Unleashing Agent ({model})...")
             agent_success, agent_output, _ = self.run_shell(agent_cmd, ignore_error=True)
 
             # Check if agent made any changes
@@ -181,15 +187,15 @@ class RalphLoop:
             passed, output, _ = self.run_shell(self.verify_cmd, ignore_error=True)
 
             if passed:
-                print(" [5/5] ✅ SUCCESS! Verification passed.")
+                print(f" [5/5] ✅ SUCCESS! Verification passed with {model}.")
                 # Commit the win
                 commit_success, commit_output, _ = self.run_shell(
-                    f"git add . && git commit -m 'Agent: {task}'",
+                    f"git add . && git commit -m 'Agent ({model}): {task}'",
                     ignore_error=True
                 )
 
                 if commit_success:
-                    print("       ✓ Changes committed successfully")
+                    print(f"       ✓ Changes committed successfully (solved by {model})")
                     return True
                 else:
                     print(f" [X] ⚠️  Commit failed: {commit_output[:200]}")
@@ -204,7 +210,7 @@ class RalphLoop:
                 self.run_shell("git reset --hard HEAD", ignore_error=True)
                 self.run_shell("git clean -fd", ignore_error=True)
 
-        print(f"\n [!] ❌ Task failed after {self.max_retries} attempts. Reverting to start.")
+        print(f"\n [!] ❌ Task failed after {len(self.models)} model(s). Reverting to start.")
         self.run_shell("git stash pop", ignore_error=True)
         return False
 
@@ -212,9 +218,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ralph Loop Supervisor")
     parser.add_argument("task", help="The coding task description")
     parser.add_argument("--verify", default=DEFAULT_VERIFIER, help="Command to verify success (default: pytest)")
-    parser.add_argument("--agent", default=DEFAULT_AGENT, help="Agent command template")
+    parser.add_argument("--agent", default=DEFAULT_AGENT, help="Agent command template (use {model} for model substitution)")
+    parser.add_argument("--models", help="Comma-separated list of models to try in escalation order (e.g., 'claude-3-haiku,claude-3-5-sonnet')")
     
     args = parser.parse_args()
     
-    loop = RalphLoop(args.agent, args.verify, MAX_RETRIES)
+    # Parse models list if provided
+    models = None
+    if args.models:
+        models = [m.strip() for m in args.models.split(',')]
+    
+    loop = RalphLoop(args.agent, args.verify, MAX_RETRIES, models=models)
     loop.execute(args.task)
