@@ -107,7 +107,8 @@ class RalphLoop:
                 capture_output=True,
                 text=True
             )
-            return True, result.stdout, result.returncode
+            success = result.returncode == 0
+            return success, result.stdout, result.returncode
         except subprocess.CalledProcessError as e:
             return False, e.stderr + e.stdout, e.returncode
 

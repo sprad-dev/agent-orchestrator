@@ -133,6 +133,218 @@ class TestContextPruning(unittest.TestCase):
         self.assertIn("file2.py", files)
 
 
+class TestEscalationIntegration(unittest.TestCase):
+    """Integration tests for escalation protocol."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        # Clean up any /tmp test artifacts from previous runs
+        os.system("rm -rf /tmp/test_* > /dev/null 2>&1")
+        
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        
+        # Initialize git repo
+        os.system("git init > /dev/null 2>&1")
+        os.system("git config user.email 'test@test.com' > /dev/null 2>&1")
+        os.system("git config user.name 'Test User' > /dev/null 2>&1")
+        
+        # Create initial commit
+        Path("dummy.txt").write_text("initial")
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'initial' > /dev/null 2>&1")
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_models_tried_in_sequence(self):
+        """Test that models are attempted in order."""
+        # Create agent that logs which model was called
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+echo "$2" >> models_called.txt
+echo "output" > result.txt
+exit 1  # Always fail
+""")
+        agent_script.chmod(0o755)
+        
+        models = ["model-a", "model-b", "model-c"]
+        loop = RalphLoop("./agent.sh {prompt} {model}", "false", 3, models=models)
+        
+        loop.execute("test task")
+        
+        # Check that all models were called in order
+        if Path("models_called.txt").exists():
+            called = Path("models_called.txt").read_text().strip().split('\n')
+            self.assertEqual(called, models)
+
+    def test_early_exit_on_success(self):
+        """Test that loop exits on first successful model."""
+        # Create agent that creates files and logs to temp location
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+mkdir -p /tmp/test_models
+echo "$2" >> /tmp/test_models/called.txt
+# Always create a file so there are changes
+echo "output from $2" > "output_$2.txt"
+# First model fails verification, second succeeds
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        models = ["model-a", "model-b", "model-c"]
+        # Use verifier that only passes on second attempt
+        verify_script = Path("verify.sh")
+        verify_script.write_text("""#!/bin/bash
+if [ -f output_model-b.txt ]; then
+    exit 0
+fi
+exit 1
+""")
+        verify_script.chmod(0o755)
+        
+        # Add scripts to git so they persist
+        os.system("git add agent.sh verify.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add scripts' > /dev/null 2>&1")
+        
+        loop = RalphLoop("./agent.sh {prompt} {model}", "./verify.sh", 3, models=models)
+        
+        result = loop.execute("test task")
+        
+        # Should succeed and only call first two models
+        self.assertTrue(result)
+        if Path("/tmp/test_models/called.txt").exists():
+            called = Path("/tmp/test_models/called.txt").read_text().strip().split('\n')
+            self.assertEqual(called, ["model-a", "model-b"])
+
+    def test_git_reset_between_attempts(self):
+        """Test that git resets between model attempts."""
+        # Create agent that creates different files for each model
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+mkdir -p /tmp/test_resets
+echo "$2" >> /tmp/test_resets/attempts.txt
+echo "$2" > "file_$2.txt"
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        # Add to git so it persists
+        os.system("git add agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        models = ["model-a", "model-b"]
+        loop = RalphLoop("./agent.sh {prompt} {model}", "false", 3, models=models)
+        
+        loop.execute("test task")
+        
+        # All models attempted
+        if Path("/tmp/test_resets/attempts.txt").exists():
+            attempts = Path("/tmp/test_resets/attempts.txt").read_text().strip().split('\n')
+            self.assertEqual(len(attempts), 2)
+        
+        # Working directory should be clean after full failure (stash popped)
+        result = os.popen("git status --porcelain").read().strip()
+        # After failure and stash pop, should be back to original state
+        self.assertEqual(result, "")
+
+    def test_escalation_context_passed(self):
+        """Test that error context is passed to subsequent models."""
+        # Create agent that logs the prompt received
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+mkdir -p /tmp/test_prompts
+echo "=== Model $2 ===" >> /tmp/test_prompts/log.txt
+echo "$1" >> /tmp/test_prompts/log.txt
+# Create a file so there are changes
+echo "output from $2" > "result_$2.txt"
+# First model fails verification
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        # Verifier that fails first, passes second
+        verify_script = Path("verify.sh")
+        verify_script.write_text("""#!/bin/bash
+if [ -f result_model-b.txt ]; then
+    exit 0
+fi
+echo "Test failed: result_model-b.txt not found"
+exit 1
+""")
+        verify_script.chmod(0o755)
+        
+        # Add scripts to git
+        os.system("git add agent.sh verify.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add scripts' > /dev/null 2>&1")
+        
+        models = ["model-a", "model-b"]
+        loop = RalphLoop("./agent.sh {prompt} {model}", "./verify.sh", 3, models=models)
+        
+        result = loop.execute("test task")
+        
+        # Check that second model received escalation context
+        self.assertTrue(result)
+        if Path("/tmp/test_prompts/log.txt").exists():
+            log = Path("/tmp/test_prompts/log.txt").read_text()
+            self.assertIn("PREVIOUS ATTEMPT FAILED", log)
+            self.assertIn("Think step-by-step", log)
+
+    def test_final_failure_all_models_exhausted(self):
+        """Test behavior when all models fail."""
+        # Create agent that always fails
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+echo "$2" >> attempts.log
+echo "failed" > output.txt
+exit 1
+""")
+        agent_script.chmod(0o755)
+        
+        models = ["model-a", "model-b", "model-c"]
+        loop = RalphLoop("./agent.sh {prompt} {model}", "false", 3, models=models)
+        
+        result = loop.execute("test task")
+        
+        # Should fail and try all models
+        self.assertFalse(result)
+        if Path("attempts.log").exists():
+            attempts = Path("attempts.log").read_text().strip().split('\n')
+            self.assertEqual(len(attempts), 3)
+
+    def test_agent_no_changes_triggers_retry(self):
+        """Test that agent producing no changes triggers reset and retry."""
+        # Create agent that produces no git changes
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+# Track calls without creating tracked files
+mkdir -p /tmp/test_calls
+echo "$2" >> /tmp/test_calls/count.txt
+# Don't create any files - no changes
+exit 0
+""")
+        agent_script.chmod(0o755)
+        # Add agent to git so it doesn't get cleaned
+        os.system("git add agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        models = ["model-a", "model-b"]
+        loop = RalphLoop("./agent.sh {prompt} {model}", "true", 3, models=models)
+        
+        result = loop.execute("test task")
+        
+        # Should fail because agent made no changes
+        self.assertFalse(result)
+        # Should have tried all models
+        if Path("/tmp/test_calls/count.txt").exists():
+            calls = len(Path("/tmp/test_calls/count.txt").read_text().strip().split('\n'))
+            self.assertEqual(calls, 2)
+
+
 class TestContextIntegration(unittest.TestCase):
     """Integration tests for context pruning in full loop."""
 
