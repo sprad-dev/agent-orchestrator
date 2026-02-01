@@ -74,7 +74,28 @@ def build_context(files):
     
     context_parts = ["\n=== CONTEXT FILES ===\n"]
     
+    # Get the project root directory for path validation
+    try:
+        project_root = os.path.abspath(os.getcwd())
+    except Exception:
+        project_root = os.path.abspath('.')
+    
     for filepath in files:
+        # Validate path to prevent path traversal
+        if filepath.startswith('/') or '..' in filepath:
+            context_parts.append(f"\n--- {filepath} (INVALID PATH) ---\n")
+            continue
+        
+        # Resolve to absolute path and verify it's within project directory
+        try:
+            abs_path = os.path.abspath(filepath)
+            if not abs_path.startswith(project_root):
+                context_parts.append(f"\n--- {filepath} (PATH OUTSIDE PROJECT) ---\n")
+                continue
+        except Exception:
+            context_parts.append(f"\n--- {filepath} (INVALID PATH) ---\n")
+            continue
+        
         if not os.path.exists(filepath):
             context_parts.append(f"\n--- {filepath} (NOT FOUND) ---\n")
             continue

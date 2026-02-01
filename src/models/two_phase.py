@@ -61,8 +61,9 @@ Generate the test file(s) now."""
 
         # Commit test files
         print(" [3/3] Committing test files...")
+        safe_task = shlex.quote(f'Generated tests: {task[:50]}')
         commit_success, commit_output, _ = run_shell(
-            f"git add . && git commit -m 'Generated tests: {task[:50]}'",
+            f"git add . && git commit -m {safe_task}",
             ignore_error=True
         )
 
@@ -127,8 +128,9 @@ Implement the code now."""
 
         if test_passed:
             print(" Implementation successful! Tests pass.")
+            safe_task = shlex.quote(f'Implemented: {task[:50]}')
             commit_success, commit_output, _ = run_shell(
-                f"git add . && git commit -m 'Implemented: {task[:50]}'",
+                f"git add . && git commit -m {safe_task}",
                 ignore_error=True
             )
             return commit_success
@@ -175,4 +177,5 @@ Implement the code now."""
             return False
 
         print("\n [!] TWO-PHASE EXECUTION COMPLETE!")
+        run_shell("git stash drop", ignore_error=True)
         return True

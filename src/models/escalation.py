@@ -109,16 +109,19 @@ Fix the error and implement correctly. Think step-by-step."""
 
             if passed:
                 print(f" [5/5] SUCCESS! Verification passed with {model}.")
+                safe_task = shlex.quote(f'Agent ({model}): {task}')
                 commit_success, commit_output, _ = run_shell(
-                    f"git add . && git commit -m 'Agent ({model}): {task}'",
+                    f"git add . && git commit -m {safe_task}",
                     ignore_error=True
                 )
 
                 if commit_success:
                     print(f"       Changes committed successfully (solved by {model})")
+                    run_shell("git stash drop", ignore_error=True)
                     return True
                 else:
                     print(f" [X] Commit failed: {commit_output[:200]}")
+                    run_shell("git stash drop", ignore_error=True)
                     return False
             else:
                 print(" [X] FAILURE. Output snippet:")
