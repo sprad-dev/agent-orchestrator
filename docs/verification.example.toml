@@ -1,0 +1,34 @@
+# Example verification configuration (TOML format)
+
+[verification]
+
+# Layer enable/disable flags
+enable_syntax_check = true
+enable_test_count_check = true
+enable_pytest_validation = true
+enable_coverage_check = false
+
+# Test execution settings
+test_command = "pytest"
+test_timeout_seconds = 300
+baseline_path = ".test_baseline"
+
+# Coverage thresholds (0-100)
+coverage_minimum_percent = 0.0
+coverage_branch_minimum_percent = 0.0
+
+# Test count requirements
+minimum_test_count = 0
+allow_test_deletion = false
+
+# Performance baselines (optional)
+# max_execution_time_seconds = 60.0
+# performance_baseline_path = ".perf_baseline"
+
+# Operation modes
+strict_mode = false
+fail_fast = false
+verbose = false
+
+# Custom settings (extensible)
+# custom_key = "custom_value"
