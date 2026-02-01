@@ -920,5 +920,168 @@ class TestCLIArgumentParsing(unittest.TestCase):
         self.assertEqual(loop.verify_cmd, 'npm test')
 
 
+class TestErrorHandling(unittest.TestCase):
+    """Tests for error handling paths in supervisor."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        
+        # Initialize git repo
+        os.system("git init > /dev/null 2>&1")
+        os.system("git config user.email 'test@test.com' > /dev/null 2>&1")
+        os.system("git config user.name 'Test User' > /dev/null 2>&1")
+        
+        # Create initial commit
+        Path("dummy.txt").write_text("initial")
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'initial' > /dev/null 2>&1")
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_json_parsing_fallback(self):
+        """Test that invalid JSON falls back to comma-separated parsing."""
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # Valid JSON should parse
+        task = 'Fix bug context_files: ["file1.py", "file2.py"]'
+        files = loop.parse_context_files(task)
+        self.assertEqual(files, ["file1.py", "file2.py"])
+        
+        # Invalid JSON should fall back to comma-separated
+        task = 'Fix bug context_files: [file1.py, file2.py, not-valid-json]'
+        files = loop.parse_context_files(task)
+        self.assertEqual(files, ["file1.py", "file2.py", "not-valid-json"])
+
+    def test_file_read_error_handling(self):
+        """Test that file read errors in build_context are handled gracefully."""
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # Test missing file
+        context = loop.build_context(["nonexistent.py"])
+        self.assertIn("nonexistent.py", context)
+        self.assertIn("NOT FOUND", context)
+        
+        # Test file with read permission error
+        restricted_file = Path("restricted.py")
+        restricted_file.write_text("content")
+        restricted_file.chmod(0o000)  # Remove all permissions
+        
+        try:
+            context = loop.build_context(["restricted.py"])
+            # Should handle the error gracefully
+            self.assertIn("restricted.py", context)
+            # Either shows error or succeeds (depends on OS permissions model)
+            self.assertTrue("ERROR" in context or "content" in context)
+        finally:
+            # Restore permissions for cleanup
+            try:
+                restricted_file.chmod(0o644)
+            except:
+                pass
+
+    def test_shell_command_error_handling(self):
+        """Test that shell command errors are properly caught and returned."""
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # Command that fails
+        success, output, returncode = loop.run_shell("exit 42", ignore_error=True)
+        self.assertFalse(success)
+        self.assertEqual(returncode, 42)
+        
+        # Command that succeeds
+        success, output, returncode = loop.run_shell("echo 'test'", ignore_error=True)
+        self.assertTrue(success)
+        self.assertEqual(returncode, 0)
+        self.assertIn("test", output)
+
+    def test_commit_failure_after_verification_passes(self):
+        """Test handling when commit fails after verification passes."""
+        # Create an agent that makes changes
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+echo "test output" > result.txt
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        # Create a verifier that passes
+        verify_script = Path("verify.sh")
+        verify_script.write_text("""#!/bin/bash
+exit 0
+""")
+        verify_script.chmod(0o755)
+        
+        os.system("git add agent.sh verify.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add scripts' > /dev/null 2>&1")
+        
+        # Break git to make commits fail (remove .git/objects permissions)
+        objects_dir = Path(".git/objects")
+        original_mode = objects_dir.stat().st_mode
+        objects_dir.chmod(0o000)
+        
+        try:
+            loop = RalphLoop("./agent.sh {prompt} {model}", "./verify.sh", 1, 
+                           models=["test-model"])
+            
+            # Execute should fail because commit fails
+            result = loop.execute("test task")
+            self.assertFalse(result)
+        finally:
+            # Restore permissions for cleanup
+            try:
+                objects_dir.chmod(original_mode)
+            except:
+                pass
+
+    def test_subprocess_exception_handling(self):
+        """Test that subprocess exceptions are caught properly."""
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # Test with ignore_error=False (should catch CalledProcessError)
+        success, output, returncode = loop.run_shell("false", ignore_error=False)
+        self.assertFalse(success)
+        self.assertNotEqual(returncode, 0)
+
+    def test_empty_context_files_list(self):
+        """Test that empty context files list is handled correctly."""
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # Empty list
+        context = loop.build_context([])
+        self.assertEqual(context, "")
+        
+        # None or empty list returns empty static context
+        static_context, size = loop.build_static_context(None)
+        self.assertEqual(static_context, "")
+        self.assertEqual(size, 0)
+        
+        static_context, size = loop.build_static_context([])
+        self.assertEqual(static_context, "")
+        self.assertEqual(size, 0)
+
+    def test_malformed_task_context_parsing(self):
+        """Test that malformed context specifications don't crash."""
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # No context specification
+        files = loop.parse_context_files("just a task with no context")
+        self.assertIsNone(files)
+        
+        # Empty brackets - regex won't match, returns None
+        files = loop.parse_context_files("task context_files: []")
+        self.assertIsNone(files)
+        
+        # Malformed brackets
+        files = loop.parse_context_files("task context_files: [")
+        self.assertIsNone(files)
+
+
 if __name__ == "__main__":
     unittest.main()
