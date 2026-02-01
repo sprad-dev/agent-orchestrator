@@ -24,6 +24,7 @@ from src.shell import (
     build_agent_command,
 )
 from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist
+from src.models.cost_tracker import AgentCostTracker, BudgetExceededException
 
 
 DEFAULT_MODELS = ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"]
@@ -40,13 +41,17 @@ class EscalationExecutor:
         verify_cmd: str,
         models: Optional[List[str]] = None,
         agent_timeout: int = DEFAULT_AGENT_TIMEOUT,
-        execution_timeout: Optional[int] = DEFAULT_EXECUTION_TIMEOUT
+        execution_timeout: Optional[int] = DEFAULT_EXECUTION_TIMEOUT,
+        max_cost_per_run: Optional[float] = None,
+        max_tokens_per_run: Optional[int] = None
     ) -> None:
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.models = models if models else DEFAULT_MODELS
         self.agent_timeout = agent_timeout
         self.execution_timeout = execution_timeout
+        self.max_cost_per_run = max_cost_per_run
+        self.max_tokens_per_run = max_tokens_per_run
 
     def _check_timeout(self, start_time: float) -> bool:
         """Check if execution has exceeded timeout limit.
@@ -63,9 +68,46 @@ class EscalationExecutor:
             return True
         return False
 
+    def _print_cost_summary(self, cost_tracker: AgentCostTracker, start_time: float) -> None:
+        """Print execution cost summary.
+
+        Args:
+            cost_tracker: Cost tracker instance
+            start_time: Execution start time
+        """
+        elapsed = time.time() - start_time
+        summary = cost_tracker.get_run_summary()
+
+        print("\n--- EXECUTION SUMMARY ---")
+        print(f"Total Duration: {elapsed:.1f}s")
+        print(f"Total Cost: ${summary['total_cost_usd']:.4f}")
+        print(f"Total Tokens: {summary['total_tokens']:,}")
+
+        if 'cost_budget_remaining_usd' in summary:
+            print(f"Cost Budget Used: {summary['cost_budget_used_percent']:.1f}% "
+                  f"(${summary['cost_budget_remaining_usd']:.4f} remaining)")
+
+        if 'token_budget_remaining' in summary:
+            print(f"Token Budget Used: {summary['token_budget_used_percent']:.1f}% "
+                  f"({summary['token_budget_remaining']:,} remaining)")
+
+        # Model breakdown
+        by_model = cost_tracker.get_cost_by_model()
+        if by_model:
+            print("\nCost by Model:")
+            for model, cost in sorted(by_model.items(), key=lambda x: x[1], reverse=True):
+                print(f"  {model}: ${cost:.4f}")
+
     def execute(self, task: str) -> bool:
         """Execute task with escalation protocol."""
         start_time = time.time()
+
+        # Initialize cost tracker
+        cost_tracker = AgentCostTracker(
+            max_cost_per_run=self.max_cost_per_run,
+            max_tokens_per_run=self.max_tokens_per_run
+        )
+        cost_tracker.reset_run_budget()
 
         print(f"--- SUPERVISOR STARTED ---")
         print(f"Target: {os.getcwd()}")
@@ -73,6 +115,10 @@ class EscalationExecutor:
         print(f"Escalation Chain: {' -> '.join(self.models)}")
         if self.execution_timeout:
             print(f"Execution Timeout: {self.execution_timeout}s (wall-clock)")
+        if self.max_cost_per_run:
+            print(f"Cost Budget: ${self.max_cost_per_run:.4f}")
+        if self.max_tokens_per_run:
+            print(f"Token Budget: {self.max_tokens_per_run:,}")
 
         # Preconditions
         print("\n [Preconditions] Running safety checks...")
@@ -188,16 +234,29 @@ Fix the error and implement correctly. Think step-by-step."""
             agent_cmd = build_agent_command(self.agent_cmd_template, full_task, model)
 
             print(f" [2/5] Unleashing Agent ({model}) [timeout: {self.agent_timeout}s]...")
-            agent_success, agent_output, _ = run_shell_with_retry(
-                agent_cmd,
-                ignore_error=True,
-                timeout=self.agent_timeout,
-                max_retries=3,
-                initial_delay=1.0,
-                backoff_multiplier=2.0,
-                max_delay=60.0,
-                jitter=True
-            )
+            try:
+                agent_success, agent_output, _ = run_shell_with_retry(
+                    agent_cmd,
+                    ignore_error=True,
+                    timeout=self.agent_timeout,
+                    max_retries=3,
+                    initial_delay=1.0,
+                    backoff_multiplier=2.0,
+                    max_delay=60.0,
+                    jitter=True,
+                    cost_tracker=cost_tracker,
+                    model=model,
+                    phase="escalation",
+                    attempt_num=attempt
+                )
+            except BudgetExceededException as e:
+                print(f"\n [!] Budget exceeded: {str(e)}")
+                print(" [!] Reverting changes and aborting execution.")
+                run_shell("git reset --hard HEAD", ignore_error=True)
+                run_shell("git clean -fd", ignore_error=True)
+                run_shell("git stash pop", ignore_error=True)
+                self._print_cost_summary(cost_tracker, start_time)
+                return False
 
             if not has_changes():
                 print(" [X] Agent made NO changes to repository!")
@@ -235,10 +294,12 @@ Fix the error and implement correctly. Think step-by-step."""
                 if commit_success:
                     print(f"       Changes committed successfully (solved by {model})")
                     run_shell("git stash drop", ignore_error=True)
+                    self._print_cost_summary(cost_tracker, start_time)
                     return True
                 else:
                     print(f" [X] Commit failed: {truncate_error(commit_output)}")
                     run_shell("git stash drop", ignore_error=True)
+                    self._print_cost_summary(cost_tracker, start_time)
                     return False
             else:
                 print(" [X] FAILURE. Output snippet:")
@@ -251,4 +312,5 @@ Fix the error and implement correctly. Think step-by-step."""
 
         print(f"\n [!] Task failed after {len(self.models)} model(s). Reverting to start.")
         run_shell("git stash pop", ignore_error=True)
+        self._print_cost_summary(cost_tracker, start_time)
         return False

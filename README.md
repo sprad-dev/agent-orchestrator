@@ -85,6 +85,51 @@ If no context is specified, the supervisor automatically detects Python files me
 - **Better performance**: Less context to process means faster responses
 - **Cost savings**: Fewer tokens = lower API costs
 
+### Cost and Token Budget Tracking
+
+The supervisor tracks token usage and API costs for all agent executions, with optional budget limits that automatically abort execution when exceeded.
+
+**Usage:**
+
+```bash
+# Set maximum cost per run (in USD)
+./supervisor.py "Add feature" --max-cost 0.50
+
+# Set maximum tokens per run
+./supervisor.py "Fix bug" --max-tokens 100000
+
+# Set both limits
+./supervisor.py "Refactor code" --max-cost 1.00 --max-tokens 200000
+```
+
+**Cost Tracking Output:**
+
+```
+--- EXECUTION SUMMARY ---
+Total Duration: 45.2s
+Total Cost: $0.0285
+Total Tokens: 12,450
+
+Cost by Model:
+  claude-4.5-sonnet: $0.0210
+  claude-4.5-haiku: $0.0075
+```
+
+**Features:**
+
+- **Automatic tracking**: Token usage and costs recorded for every execution
+- **Budget enforcement**: Execution aborts if cost or token limit exceeded
+- **Model breakdown**: See which models consumed the most tokens/cost
+- **Historical data**: Metrics stored in `.agent_cost_metrics.json`
+- **Transparent pricing**: Uses current Anthropic API pricing
+
+**Benefits:**
+
+- **Cost control**: Prevent runaway costs with hard limits
+- **Visibility**: Understand which tasks are expensive
+- **Optimization**: Identify opportunities to use cheaper models
+- **Budgeting**: Plan agent execution costs in advance
+
 ## Agent Workflow Analysis
 
 📊 **New:** Comprehensive analysis of how codebase modularity impacts agent-based development workflows.

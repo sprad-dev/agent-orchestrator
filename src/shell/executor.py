@@ -11,7 +11,10 @@ import subprocess
 import shlex
 import time
 import random
-from typing import Tuple, Optional
+from typing import Tuple, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..models.cost_tracker import AgentCostTracker
 
 
 def run_shell(cmd: str, ignore_error: bool = False, timeout: Optional[int] = None) -> Tuple[bool, str, int]:
@@ -91,7 +94,11 @@ def run_shell_with_retry(
     initial_delay: float = 1.0,
     backoff_multiplier: float = 2.0,
     max_delay: float = 60.0,
-    jitter: bool = True
+    jitter: bool = True,
+    cost_tracker: Optional["AgentCostTracker"] = None,
+    model: Optional[str] = None,
+    phase: str = "execution",
+    attempt_num: int = 1
 ) -> Tuple[bool, str, int]:
     """Run shell command with exponential backoff retry on transient failures.
 
@@ -110,9 +117,16 @@ def run_shell_with_retry(
         backoff_multiplier: Multiplier for exponential backoff (default: 2.0)
         max_delay: Maximum delay between retries in seconds (default: 60.0)
         jitter: Add random jitter to delays to avoid thundering herd (default: True)
+        cost_tracker: Optional AgentCostTracker for tracking token usage/costs
+        model: Model identifier for cost tracking (required if cost_tracker provided)
+        phase: Execution phase for cost tracking (default: "execution")
+        attempt_num: Attempt number for cost tracking (default: 1)
 
     Returns:
         Tuple of (success: bool, output: str, returncode: int)
+
+    Raises:
+        BudgetExceededException: If cost/token budget is exceeded
 
     Example:
         # Retry up to 3 times with exponential backoff
@@ -124,9 +138,35 @@ def run_shell_with_retry(
     """
     attempt = 0
     delay = initial_delay
+    start_time = time.time()
 
     while attempt <= max_retries:
+        exec_start = time.time()
         success, output, returncode = run_shell(cmd, ignore_error=True, timeout=timeout)
+        exec_duration = time.time() - exec_start
+
+        # Track cost/tokens if tracker provided
+        if cost_tracker and model:
+            from ..models.cost_tracker import parse_claude_tokens, BudgetExceededException
+
+            tokens = parse_claude_tokens(output)
+            if tokens:
+                input_tokens, output_tokens = tokens
+                try:
+                    cost_tracker.record_execution(
+                        model=model,
+                        phase=phase,
+                        attempt_num=attempt_num,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        duration_seconds=exec_duration,
+                        success=success,
+                        retry_count=attempt
+                    )
+                except BudgetExceededException as e:
+                    # Budget exceeded - propagate exception
+                    print(f" [X] {str(e)}")
+                    raise
 
         # Success - return immediately
         if success:

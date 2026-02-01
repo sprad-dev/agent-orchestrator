@@ -28,23 +28,30 @@ class RalphLoop:
     """Main orchestrator that delegates to execution strategies."""
 
     def __init__(self, agent_cmd_template, verify_cmd, max_retries,
-                 models=None, test_model=None, impl_model=None):
+                 models=None, test_model=None, impl_model=None,
+                 max_cost_per_run=None, max_tokens_per_run=None):
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.max_retries = max_retries
         self.models = models if models else DEFAULT_MODELS
         self.test_model = test_model
         self.impl_model = impl_model
+        self.max_cost_per_run = max_cost_per_run
+        self.max_tokens_per_run = max_tokens_per_run
         self.two_phase_mode = test_model is not None and impl_model is not None
 
         # Initialize the appropriate executor
         if self.two_phase_mode:
             self.executor = TwoPhaseExecutor(
-                agent_cmd_template, verify_cmd, test_model, impl_model
+                agent_cmd_template, verify_cmd, test_model, impl_model,
+                max_cost_per_run=max_cost_per_run,
+                max_tokens_per_run=max_tokens_per_run
             )
         else:
             self.executor = EscalationExecutor(
-                agent_cmd_template, verify_cmd, self.models
+                agent_cmd_template, verify_cmd, self.models,
+                max_cost_per_run=max_cost_per_run,
+                max_tokens_per_run=max_tokens_per_run
             )
 
     def execute(self, task):
@@ -120,6 +127,10 @@ def main():
                         help="Model for test generation (enables two-phase mode)")
     parser.add_argument("--impl-model",
                         help="Model for implementation (enables two-phase mode)")
+    parser.add_argument("--max-cost", type=float,
+                        help="Maximum cost per run in USD (e.g., 1.00)")
+    parser.add_argument("--max-tokens", type=int,
+                        help="Maximum tokens per run (e.g., 100000)")
 
     args = parser.parse_args()
 
@@ -132,7 +143,9 @@ def main():
         args.agent, args.verify, MAX_RETRIES,
         models=models,
         test_model=args.test_model,
-        impl_model=args.impl_model
+        impl_model=args.impl_model,
+        max_cost_per_run=args.max_cost,
+        max_tokens_per_run=args.max_tokens
     )
     success = loop.execute(args.task)
 
