@@ -24,7 +24,7 @@ def test_runner_with_existing_files(monkeypatch):
         passed, output = runner.run(modified_files=[f.name])
         
         assert passed is True
-        assert '✓ L1 File existence check passed' in output
+        assert '✓ L1 All' in output and 'file(s) exist' in output
         
         Path(f.name).unlink()
         Path(baseline.name).unlink()
@@ -115,17 +115,24 @@ def test_l1_checks_multiple_files_mixed(monkeypatch):
         Path(f.name).unlink()
 
 
-def test_l1_allows_empty_file_list():
+def test_l1_allows_empty_file_list(monkeypatch):
     """L1 should handle empty file list gracefully."""
-    runner = VerificationRunner()
-    
-    # Empty list should be treated as no files to check
-    # This is implicitly tested by passing modified_files=[] which should skip L1
-    # But let's be explicit
-    files_exist, errors = runner.run_file_exists_check([])
-    
-    assert files_exist is True
-    assert len(errors) == 0
+    with tempfile.NamedTemporaryFile(suffix='.baseline', delete=False) as baseline:
+        runner = VerificationRunner(baseline_path=baseline.name)
+        
+        # Mock pytest to return successful test run
+        def mock_run_shell(cmd, ignore_error=False):
+            return True, "collected 1 item\n\n1 passed in 0.01s", ""
+        
+        monkeypatch.setattr('src.verification.runner.run_shell', mock_run_shell)
+        
+        # Empty list should be treated as no files to check
+        passed, output = runner.run(modified_files=[])
+        
+        # Should pass without running L1/L2 checks
+        assert passed is True
+        
+        Path(baseline.name).unlink()
 
 
 def test_l1_integration_with_all_layers(monkeypatch):
@@ -146,9 +153,9 @@ def test_l1_integration_with_all_layers(monkeypatch):
         
         assert passed is True
         # Should see all layers execute
-        assert '✓ L1 File existence check passed' in output
-        assert '✓ L2 Syntax check passed' in output
-        assert '✓ L3 Pytest validation' in output
+        assert '✓ L1 All' in output and 'file(s) exist' in output
+        assert '✓ L2 Python syntax valid' in output
+        assert '✓ L3 Pytest' in output
         
         Path(f.name).unlink()
 

@@ -8,6 +8,7 @@ import subprocess
 import json
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
+from src.verification.layer import Layer, LayerResult
 
 
 def get_changed_files(base_ref: str = "HEAD") -> List[str]:
@@ -37,6 +38,52 @@ def get_changed_files(base_ref: str = "HEAD") -> List[str]:
         return []
     except Exception:
         return []
+
+
+class CoverageCheckLayer(Layer):
+    """L3: Coverage validation layer."""
+    
+    def __init__(self, min_coverage: float = 80.0, test_command: str = "pytest"):
+        """Initialize coverage check layer.
+        
+        Args:
+            min_coverage: Minimum coverage percentage required
+            test_command: Command to run tests
+        """
+        super().__init__()
+        self.min_coverage = min_coverage
+        self.test_command = test_command
+    
+    @property
+    def name(self) -> str:
+        """Layer name."""
+        return "CoverageCheck"
+    
+    @property
+    def level(self) -> int:
+        """Layer level (L3)."""
+        return 3
+    
+    def run(self, changed_files: List[str] = None, **kwargs) -> LayerResult:
+        """Check coverage for changed files.
+        
+        Args:
+            changed_files: List of files to check coverage for
+            **kwargs: Ignored (for compatibility)
+            
+        Returns:
+            LayerResult with validation status
+        """
+        passed, message, _ = run_coverage_analysis(
+            self.test_command,
+            changed_files,
+            self.min_coverage
+        )
+        
+        return LayerResult(
+            passed=passed,
+            message=message
+        )
 
 
 def run_coverage_analysis(
@@ -164,6 +211,9 @@ def check_coverage(
     test_command: str = "pytest"
 ) -> Tuple[bool, str]:
     """Check coverage for changed files with minimum threshold.
+    
+    Deprecated: Use CoverageCheckLayer.run() instead.
+    Kept for backwards compatibility.
     
     Args:
         changed_files: List of files to check (if None, auto-detect from git)
