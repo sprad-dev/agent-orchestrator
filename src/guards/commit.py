@@ -157,34 +157,173 @@ class GuardRegistry:
 
 
 
-class CommitGuard:
-    """Guards commits with safety checks."""
+class SecretsGuard(Guard):
+    """Guard for detecting secrets in diffs."""
+    
+    SECRET_PATTERNS = {
+        'aws_access_key': r'AKIA[0-9A-Z]{16}',
+        'aws_secret_key': r'[A-Za-z0-9/+=]{40}',
+        'bearer_token': r'Bearer\s+[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+',
+        'openai_key': r'sk-[A-Za-z0-9]{20,}',
+        'github_pat': r'ghp_[A-Za-z0-9]{36}',
+        'github_oauth': r'gho_[A-Za-z0-9]{36}',
+        'private_key_rsa': r'-----BEGIN RSA PRIVATE KEY-----',
+        'private_key_dsa': r'-----BEGIN DSA PRIVATE KEY-----',
+        'private_key_ec': r'-----BEGIN EC PRIVATE KEY-----',
+        'private_key_openssh': r'-----BEGIN OPENSSH PRIVATE KEY-----',
+        'generic_password': r'["\']password["\']\s*:\s*["\'][^"\']{8,}["\']',
+        'generic_api_key': r'["\']api[_\-]?key["\']\s*:\s*["\'][A-Za-z0-9]{32,}["\']',
+    }
+    
+    def check(self) -> GuardResult:
+        """Scan git diff for secrets and credentials.
+        
+        Returns:
+            GuardResult with check outcome
+        """
+        try:
+            diff_content = get_diff_content()
+            if not diff_content:
+                return GuardResult(name=self.name, passed=True, issues=[])
 
-    # Allowed file extensions
+            issues = []
+            for secret_type, pattern in self.SECRET_PATTERNS.items():
+                matches = re.finditer(pattern, diff_content, re.MULTILINE)
+                for match in matches:
+                    start_pos = diff_content.rfind('\n', 0, match.start()) + 1
+                    end_pos = diff_content.find('\n', match.start())
+                    if end_pos == -1:
+                        end_pos = len(diff_content)
+                    line = diff_content[start_pos:end_pos]
+                    
+                    if line.startswith('+') and not line.startswith('+++'):
+                        issues.append(f"Potential {secret_type.replace('_', ' ')} detected in diff")
+
+            if issues:
+                return GuardResult(name=self.name, passed=False, issues=issues)
+            return GuardResult(name=self.name, passed=True, issues=[])
+        except Exception as e:
+            return GuardResult(name=self.name, passed=False, issues=[f"Error scanning for secrets: {str(e)}"])
+
+
+class FileTypeGuard(Guard):
+    """Guard for validating file types in commits."""
+    
     ALLOWED_EXTENSIONS = {
         '.py', '.txt', '.md', '.json', '.yaml', '.yml', 
         '.toml', '.ini', '.sh', '.rst', '.cfg'
     }
     
-    # Binary file extensions (blocked)
     BINARY_EXTENSIONS = {
-        # Executables
         '.exe', '.dll', '.so', '.dylib', '.bin',
-        # Compiled
         '.o', '.obj', '.pyc', '.class', '.jar',
-        # Archives
         '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar',
-        # Images
         '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg',
-        # Media
         '.mp3', '.mp4', '.avi', '.mov', '.wav',
-        # Documents
         '.pdf', '.doc', '.docx', '.xls', '.xlsx',
-        # Others
+        '.db', '.sqlite', '.dat'
+    }
+    
+    def __init__(self, name: str = "file_types", allowed_extensions: Set[str] = None, 
+                 blocked_extensions: Set[str] = None, priority: int = 100):
+        """Initialize file type guard.
+        
+        Args:
+            name: Guard identifier
+            allowed_extensions: Set of allowed file extensions
+            blocked_extensions: Set of blocked file extensions
+            priority: Execution priority
+        """
+        super().__init__(name, priority)
+        self.allowed_extensions = allowed_extensions if allowed_extensions is not None else self.ALLOWED_EXTENSIONS
+        self.blocked_extensions = blocked_extensions if blocked_extensions is not None else self.BINARY_EXTENSIONS
+    
+    def check(self) -> GuardResult:
+        """Validate file types in git diff.
+        
+        Returns:
+            GuardResult with check outcome
+        """
+        try:
+            success, output, _ = run_shell("git diff --cached --name-only --diff-filter=ACM", ignore_error=True)
+            if not success:
+                success, output, _ = run_shell("git diff --name-only --diff-filter=ACM", ignore_error=True)
+            
+            if not success or not output.strip():
+                return GuardResult(name=self.name, passed=True, issues=[])
+            
+            files = output.strip().split('\n')
+            issues = []
+            
+            for file_path in files:
+                if not file_path:
+                    continue
+                
+                ext = self._get_extension(file_path)
+                
+                if ext in self.blocked_extensions:
+                    issues.append(f"Blocked file type: {file_path} ({ext} files not allowed)")
+                    continue
+                
+                if ext and ext not in self.allowed_extensions:
+                    issues.append(f"Disallowed file type: {file_path} ({ext} not in allowed list)")
+                
+                if self._is_binary_content(file_path):
+                    issues.append(f"Binary content detected: {file_path}")
+            
+            if issues:
+                return GuardResult(name=self.name, passed=False, issues=issues)
+            return GuardResult(name=self.name, passed=True, issues=[])
+        except Exception as e:
+            return GuardResult(name=self.name, passed=False, issues=[f"Error validating file types: {str(e)}"])
+    
+    def _get_extension(self, file_path: str) -> str:
+        """Extract file extension from path."""
+        if '.' not in file_path:
+            return ''
+        parts = file_path.rsplit('.', 1)
+        if len(parts) == 2:
+            return f".{parts[1]}"
+        return ''
+    
+    def _is_binary_content(self, file_path: str) -> bool:
+        """Check if file contains binary content."""
+        try:
+            success, _, _ = run_shell(f"test -f {shlex.quote(file_path)}", ignore_error=True)
+            if not success:
+                return False
+            
+            success, output, _ = run_shell(
+                f"head -c 8192 {shlex.quote(file_path)} | grep -q '\\x00' && echo 'binary' || echo 'text'",
+                ignore_error=True
+            )
+            
+            return output.strip() == 'binary'
+        except Exception:
+            return False
+
+
+class CommitGuard:
+    """Guards commits with safety checks."""
+
+    # Allowed file extensions (kept for backward compatibility)
+    ALLOWED_EXTENSIONS = {
+        '.py', '.txt', '.md', '.json', '.yaml', '.yml', 
+        '.toml', '.ini', '.sh', '.rst', '.cfg'
+    }
+    
+    # Binary file extensions (kept for backward compatibility)
+    BINARY_EXTENSIONS = {
+        '.exe', '.dll', '.so', '.dylib', '.bin',
+        '.o', '.obj', '.pyc', '.class', '.jar',
+        '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar',
+        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg',
+        '.mp3', '.mp4', '.avi', '.mov', '.wav',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx',
         '.db', '.sqlite', '.dat'
     }
 
-    # Secret detection patterns
+    # Secret detection patterns (kept for backward compatibility)
     SECRET_PATTERNS = {
         'aws_access_key': r'AKIA[0-9A-Z]{16}',
         'aws_secret_key': r'[A-Za-z0-9/+=]{40}',
@@ -210,6 +349,15 @@ class CommitGuard:
         self.allowed_extensions = allowed_extensions if allowed_extensions is not None else self.ALLOWED_EXTENSIONS
         self.blocked_extensions = blocked_extensions if blocked_extensions is not None else self.BINARY_EXTENSIONS
         self.registry = GuardRegistry()
+        
+        # Auto-register built-in guards
+        self.registry.register(SecretsGuard(name="secrets", priority=10))
+        self.registry.register(FileTypeGuard(
+            name="file_types",
+            allowed_extensions=self.allowed_extensions,
+            blocked_extensions=self.blocked_extensions,
+            priority=20
+        ))
 
     def check_all(self) -> Tuple[bool, List[str]]:
         """Run all commit guards.
@@ -217,156 +365,54 @@ class CommitGuard:
         Returns:
             Tuple of (passed: bool, issues: list)
         """
-        # If registry has guards, use it
-        if len(self.registry.list_guards()) > 0:
-            passed, results = self.registry.execute_all(short_circuit=True)
-            
-            # Aggregate issues from all results
-            issues = []
-            for result in results:
-                if not result.passed:
-                    issues.extend(result.issues)
-            
-            return passed, issues
+        passed, results = self.registry.execute_all(short_circuit=True)
         
-        # Fallback: Run built-in checks directly (backward compatibility)
-        all_issues = []
+        # Aggregate issues from all results
+        issues = []
+        for result in results:
+            if not result.passed:
+                issues.extend(result.issues)
         
-        # Check secrets
-        passed, issues = self.check_secrets()
-        all_issues.extend(issues)
-        
-        # Check file types
-        passed_ft, issues_ft = self.check_file_types()
-        all_issues.extend(issues_ft)
-        passed = passed and passed_ft
-        
-        return passed, all_issues
+        return passed, issues
+
 
     def check_secrets(self) -> Tuple[bool, List[str]]:
-        """Scan git diff for secrets and credentials.
-
+        """Backward compatibility: Scan git diff for secrets.
+        
         Returns:
             Tuple of (passed: bool, issues: list of found secrets)
         """
-        try:
-            diff_content = get_diff_content()
-            if not diff_content:
-                return True, []
-
-            issues = []
-            for secret_type, pattern in self.SECRET_PATTERNS.items():
-                matches = re.finditer(pattern, diff_content, re.MULTILINE)
-                for match in matches:
-                    # Only flag additions (lines starting with +)
-                    # Get the line containing the match
-                    start_pos = diff_content.rfind('\n', 0, match.start()) + 1
-                    end_pos = diff_content.find('\n', match.start())
-                    if end_pos == -1:
-                        end_pos = len(diff_content)
-                    line = diff_content[start_pos:end_pos]
-                    
-                    if line.startswith('+') and not line.startswith('+++'):
-                        issues.append(f"Potential {secret_type.replace('_', ' ')} detected in diff")
-
-            if issues:
-                return False, issues
-            return True, []
-        except Exception as e:
-            return False, [f"Error scanning for secrets: {str(e)}"]
-
+        guard = self.registry.get_guard("secrets")
+        if guard:
+            result = guard.check()
+            return result.passed, result.issues
+        return True, []
+    
     def check_file_types(self) -> Tuple[bool, List[str]]:
-        """Validate file types in git diff to block unwanted files.
-        
-        Blocks:
-        - Binary files (by extension and content)
-        - Files not in allowed extensions list
+        """Backward compatibility: Validate file types in git diff.
         
         Returns:
             Tuple of (passed: bool, issues: list of file type violations)
         """
-        try:
-            # Get list of files in diff
-            success, output, _ = run_shell("git diff --cached --name-only --diff-filter=ACM", ignore_error=True)
-            if not success:
-                # Try without --cached (for unstaged changes)
-                success, output, _ = run_shell("git diff --name-only --diff-filter=ACM", ignore_error=True)
-            
-            if not success or not output.strip():
-                return True, []  # No files to check
-            
-            files = output.strip().split('\n')
-            issues = []
-            
-            for file_path in files:
-                if not file_path:
-                    continue
-                
-                # Get file extension
-                ext = self._get_extension(file_path)
-                
-                # Check if blocked extension
-                if ext in self.blocked_extensions:
-                    issues.append(f"Blocked file type: {file_path} ({ext} files not allowed)")
-                    continue
-                
-                # Check if not in allowed extensions
-                if ext and ext not in self.allowed_extensions:
-                    issues.append(f"Disallowed file type: {file_path} ({ext} not in allowed list)")
-                
-                # Check for binary content
-                if self._is_binary_content(file_path):
-                    issues.append(f"Binary content detected: {file_path}")
-            
-            if issues:
-                return False, issues
-            return True, []
-        except Exception as e:
-            return False, [f"Error validating file types: {str(e)}"]
+        guard = self.registry.get_guard("file_types")
+        if guard:
+            result = guard.check()
+            return result.passed, result.issues
+        return True, []
     
     def _get_extension(self, file_path: str) -> str:
-        """Extract file extension from path.
-        
-        Args:
-            file_path: Path to file
-            
-        Returns:
-            File extension including dot (e.g., '.py') or empty string
-        """
-        if '.' not in file_path:
-            return ''
-        parts = file_path.rsplit('.', 1)
-        if len(parts) == 2:
-            return f".{parts[1]}"
+        """Backward compatibility: Extract file extension from path."""
+        guard = self.registry.get_guard("file_types")
+        if guard and hasattr(guard, '_get_extension'):
+            return guard._get_extension(file_path)
         return ''
     
     def _is_binary_content(self, file_path: str) -> bool:
-        """Check if file contains binary content.
-        
-        Uses null byte detection as indicator of binary content.
-        
-        Args:
-            file_path: Path to file to check
-            
-        Returns:
-            True if file appears to be binary
-        """
-        try:
-            # Check if file exists in working directory
-            success, _, _ = run_shell(f"test -f {shlex.quote(file_path)}", ignore_error=True)
-            if not success:
-                return False  # File doesn't exist (maybe deleted), skip check
-            
-            # Read first 8KB to check for null bytes
-            success, output, _ = run_shell(
-                f"head -c 8192 {shlex.quote(file_path)} | grep -q '\\x00' && echo 'binary' || echo 'text'",
-                ignore_error=True
-            )
-            
-            return output.strip() == 'binary'
-        except Exception:
-            # If we can't determine, err on the side of caution
-            return False
+        """Backward compatibility: Check if file contains binary content."""
+        guard = self.registry.get_guard("file_types")
+        if guard and hasattr(guard, '_is_binary_content'):
+            return guard._is_binary_content(file_path)
+        return False
 
     # Future guard hooks:
     # def validate_commit_message(self, msg): ...  # Message format
