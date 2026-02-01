@@ -148,6 +148,7 @@ class VerificationConfig:
             Dictionary representation of config (excludes None values)
         """
         result = {
+            'enable_file_exists_check': self.enable_file_exists_check,
             'enable_syntax_check': self.enable_syntax_check,
             'enable_test_count_check': self.enable_test_count_check,
             'enable_pytest_validation': self.enable_pytest_validation,
