@@ -10,9 +10,17 @@ This optimizes cost by only using expensive models when needed.
 
 import os
 import shlex
+from typing import List, Optional
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
-from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content, truncate_error
+from src.shell import (
+    run_shell,
+    has_changes,
+    get_diff_summary,
+    get_diff_content,
+    truncate_error,
+    build_agent_command,
+)
 from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist
 
 
@@ -23,13 +31,19 @@ DEFAULT_AGENT_TIMEOUT = 300  # 5 minutes
 class EscalationExecutor:
     """Executes tasks using model escalation on failure."""
 
-    def __init__(self, agent_cmd_template, verify_cmd, models=None, agent_timeout=DEFAULT_AGENT_TIMEOUT):
+    def __init__(
+        self,
+        agent_cmd_template: str,
+        verify_cmd: str,
+        models: Optional[List[str]] = None,
+        agent_timeout: int = DEFAULT_AGENT_TIMEOUT
+    ) -> None:
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.models = models if models else DEFAULT_MODELS
         self.agent_timeout = agent_timeout
 
-    def execute(self, task):
+    def execute(self, task: str) -> bool:
         """Execute task with escalation protocol."""
         print(f"--- SUPERVISOR STARTED ---")
         print(f"Target: {os.getcwd()}")
@@ -112,8 +126,7 @@ Fix the error and implement correctly. Think step-by-step."""
 
                 full_task = retry_prompt
 
-            safe_prompt = shlex.quote(full_task)
-            agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", model)
+            agent_cmd = build_agent_command(self.agent_cmd_template, full_task, model)
 
             print(f" [2/5] Unleashing Agent ({model}) [timeout: {self.agent_timeout}s]...")
             agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)

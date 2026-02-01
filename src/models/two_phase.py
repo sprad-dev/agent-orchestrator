@@ -9,9 +9,16 @@ This optimizes cost by using expensive models only for design work.
 
 import os
 import shlex
+from typing import List, Optional
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
-from src.shell import run_shell, has_changes, get_diff_summary, truncate_error
+from src.shell import (
+    run_shell,
+    has_changes,
+    get_diff_summary,
+    truncate_error,
+    build_agent_command,
+)
 from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist
 
 
@@ -21,14 +28,21 @@ DEFAULT_AGENT_TIMEOUT = 300  # 5 minutes
 class TwoPhaseExecutor:
     """Executes tasks using architect/intern model split."""
 
-    def __init__(self, agent_cmd_template, verify_cmd, test_model, impl_model, agent_timeout=DEFAULT_AGENT_TIMEOUT):
+    def __init__(
+        self,
+        agent_cmd_template: str,
+        verify_cmd: str,
+        test_model: str,
+        impl_model: str,
+        agent_timeout: int = DEFAULT_AGENT_TIMEOUT
+    ) -> None:
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.test_model = test_model
         self.impl_model = impl_model
         self.agent_timeout = agent_timeout
 
-    def run_test_generation_phase(self, task, context_files):
+    def run_test_generation_phase(self, task: str, context_files: Optional[List[str]]) -> bool:
         """Phase 1: Generate tests using smart model."""
         print(f"\n=== TEST GENERATION PHASE (Model: {self.test_model}) ===")
 
@@ -51,8 +65,7 @@ REQUIREMENTS:
 
 Generate the test file(s) now."""
 
-        safe_prompt = shlex.quote(test_prompt)
-        agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", self.test_model)
+        agent_cmd = build_agent_command(self.agent_cmd_template, test_prompt, self.test_model)
 
         print(f" [1/3] Generating tests with {self.test_model} [timeout: {self.agent_timeout}s]...")
         agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)
@@ -79,7 +92,7 @@ Generate the test file(s) now."""
         print(" Test generation complete!")
         return True
 
-    def run_implementation_phase(self, task, context_files):
+    def run_implementation_phase(self, task: str, context_files: Optional[List[str]]) -> bool:
         """Phase 2: Implement code to pass tests using cheap model."""
         print(f"\n=== IMPLEMENTATION PHASE (Model: {self.impl_model}) ===")
 
@@ -114,8 +127,7 @@ REQUIREMENTS:
 
 Implement the code now."""
 
-        safe_prompt = shlex.quote(impl_prompt)
-        agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", self.impl_model)
+        agent_cmd = build_agent_command(self.agent_cmd_template, impl_prompt, self.impl_model)
 
         print(f" [2/4] Implementing with {self.impl_model} [timeout: {self.agent_timeout}s]...")
         agent_success, agent_output, _ = run_shell(agent_cmd, ignore_error=True, timeout=self.agent_timeout)
@@ -144,7 +156,7 @@ Implement the code now."""
             print(f"---\n{truncate_error(test_output)}...\n---")
             return False
 
-    def execute(self, task):
+    def execute(self, task: str) -> bool:
         """Execute task using two-phase architect/intern approach."""
         print(f"--- SUPERVISOR STARTED (TWO-PHASE MODE) ---")
         print(f"Target: {os.getcwd()}")

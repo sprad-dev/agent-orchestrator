@@ -4,10 +4,11 @@ This module contains individual precondition checks.
 Each check returns (passed: bool, message: str).
 """
 
+from typing import Tuple
 from src.shell import run_shell, truncate_error
 
 
-def check_git_clean():
+def check_git_clean() -> Tuple[bool, str]:
     """Check that git working tree is clean.
 
     Returns:
@@ -23,7 +24,7 @@ def check_git_clean():
     return True, "Working tree is clean"
 
 
-def check_tests_exist(verify_cmd="pytest"):
+def check_tests_exist(verify_cmd: str = "pytest") -> Tuple[bool, str]:
     """Check that pytest collects at least 1 test.
 
     Verifies pytest can collect tests to prevent false positives
@@ -50,17 +51,17 @@ def check_tests_exist(verify_cmd="pytest"):
     if not success and "collected" not in output.lower():
         return False, f"Failed to collect tests: {truncate_error(output)}"
     
-    # Extract count if available
+    # Extract count if available (handles both "X tests collected" and "collected X tests")
     import re
-    match = re.search(r'(\d+)\s+tests?\s+collected', output, re.IGNORECASE)
+    match = re.search(r'(?:(\d+)\s+tests?\s+collected|collected\s+(\d+)\s+tests?)', output, re.IGNORECASE)
     if match:
-        count = match.group(1)
+        count = match.group(1) or match.group(2)
         return True, f"Collected {count} test(s)"
-    
+
     return True, "Tests successfully collected"
 
 
-def check_agent_reachable(agent_cmd_template):
+def check_agent_reachable(agent_cmd_template: str) -> Tuple[bool, str]:
     """Check that agent command is callable.
 
     Verifies the agent binary/function exists before execution.

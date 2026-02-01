@@ -7,9 +7,11 @@ This module handles:
 """
 
 import subprocess
+import shlex
+from typing import Tuple, Optional
 
 
-def run_shell(cmd, ignore_error=False, timeout=None):
+def run_shell(cmd: str, ignore_error: bool = False, timeout: Optional[int] = None) -> Tuple[bool, str, int]:
     """Runs a command in the CURRENT working directory.
 
     Args:
@@ -44,25 +46,25 @@ def run_shell(cmd, ignore_error=False, timeout=None):
         return False, e.stderr + e.stdout, e.returncode
 
 
-def has_changes():
+def has_changes() -> bool:
     """Check if there are any uncommitted changes in the working directory."""
     success, output, _ = run_shell("git status --porcelain", ignore_error=True)
     return success and len(output.strip()) > 0
 
 
-def get_diff_summary():
+def get_diff_summary() -> str:
     """Get a summary of changes made."""
     success, output, _ = run_shell("git diff --stat", ignore_error=True)
     return output if success else "Unable to get diff"
 
 
-def get_diff_content():
+def get_diff_content() -> str:
     """Get the full diff of current changes."""
     success, output, _ = run_shell("git diff", ignore_error=True)
     return output if success else "Unable to get diff"
 
 
-def truncate_error(error_text, max_length=2000):
+def truncate_error(error_text: str, max_length: int = 2000) -> str:
     """Truncate error text to prevent unbounded output.
 
     Keeps first half and last half with ellipsis in middle.
@@ -86,3 +88,25 @@ def truncate_error(error_text, max_length=2000):
     last_chunk = error_text[-chunk_size:]
 
     return f"{first_chunk}\n...[truncated {len(error_text) - max_length} chars]...\n{last_chunk}"
+
+
+def build_agent_command(template: str, prompt: str, model: str) -> str:
+    """Build agent command with properly escaped prompt.
+
+    This eliminates code duplication across execution strategies by
+    centralizing the prompt escaping and template substitution logic.
+
+    Args:
+        template: Agent command template with {prompt} and {model} placeholders
+        prompt: The prompt text to send to the agent
+        model: The model identifier to use
+
+    Returns:
+        Fully constructed agent command string with escaped prompt
+
+    Example:
+        >>> build_agent_command("claude {prompt}", "Fix bug", "sonnet")
+        "claude 'Fix bug'"
+    """
+    safe_prompt = shlex.quote(prompt)
+    return template.replace("{prompt}", safe_prompt).replace("{model}", model)
