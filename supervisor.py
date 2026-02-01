@@ -16,11 +16,14 @@ MAX_RETRIES = 3
 DEFAULT_MODELS = ["claude-3-haiku", "claude-3-haiku", "claude-3-5-sonnet"]
 
 class RalphLoop:
-    def __init__(self, agent_cmd_template, verify_cmd, max_retries, models=None):
+    def __init__(self, agent_cmd_template, verify_cmd, max_retries, models=None, test_model=None, impl_model=None):
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
         self.max_retries = max_retries
         self.models = models if models else DEFAULT_MODELS
+        self.test_model = test_model
+        self.impl_model = impl_model
+        self.two_phase_mode = test_model is not None and impl_model is not None
 
     def parse_context_files(self, task):
         """Parse context_files from task specification.
@@ -122,7 +125,166 @@ class RalphLoop:
         success, output, _ = self.run_shell("git diff --stat", ignore_error=True)
         return output if success else "Unable to get diff"
 
+    def run_test_generation_phase(self, task, context_files):
+        """Phase 1: Generate tests using smart model."""
+        print(f"\n=== 🧠 TEST GENERATION PHASE (Model: {self.test_model}) ===")
+        
+        # Build file context
+        file_context = self.build_context(context_files)
+        
+        # Construct test generation prompt
+        test_prompt = f"""{file_context}
+
+TASK: Generate pytest test file(s) for the following requirement:
+{task}
+
+REQUIREMENTS:
+- Write clear, comprehensive tests that will FAIL initially
+- Tests should specify the exact behavior needed
+- Use descriptive test names and assertions
+- Create test files following pytest conventions (test_*.py)
+
+Generate the test file(s) now."""
+        
+        safe_prompt = shlex.quote(test_prompt)
+        agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", self.test_model)
+        
+        print(f" [1/3] 🧪 Generating tests with {self.test_model}...")
+        agent_success, agent_output, _ = self.run_shell(agent_cmd, ignore_error=True)
+        
+        # Check if agent made any changes
+        if not self.has_changes():
+            print(" [X] ⚠️  Test generation produced NO changes!")
+            return False
+        
+        print(" [2/3] 📊 Test files created:")
+        print(self.get_diff_summary())
+        
+        # Commit test files
+        print(" [3/3] 💾 Committing test files...")
+        commit_success, commit_output, _ = self.run_shell(
+            f"git add . && git commit -m 'Generated tests: {task[:50]}'",
+            ignore_error=True
+        )
+        
+        if not commit_success:
+            print(f" [X] ⚠️  Failed to commit tests: {commit_output[:200]}")
+            return False
+        
+        print(" ✅ Test generation complete!")
+        return True
+
+    def run_implementation_phase(self, task, context_files):
+        """Phase 2: Implement code to pass tests using cheap model."""
+        print(f"\n=== 🔨 IMPLEMENTATION PHASE (Model: {self.impl_model}) ===")
+        
+        # Run tests to get initial failure output
+        print(" [1/4] 🧪 Running tests to capture initial failure...")
+        test_passed, test_output, _ = self.run_shell(self.verify_cmd, ignore_error=True)
+        
+        if test_passed:
+            print(" [!] ⚠️  Tests already pass - nothing to implement!")
+            return True
+        
+        print(" [X] Tests failed (expected). Error output captured.")
+        
+        # Build file context including test files
+        file_context = self.build_context(context_files)
+        
+        # Construct implementation prompt with test failure context
+        impl_prompt = f"""{file_context}
+
+TASK: Implement code to make the following tests pass:
+{task}
+
+TEST FAILURE OUTPUT:
+{test_output[:2000]}
+
+REQUIREMENTS:
+- Write minimal code to make the tests pass
+- Follow Red-Green-Refactor: make it work first
+- Do not modify the test files
+- Focus on passing the assertions
+
+Implement the code now."""
+        
+        safe_prompt = shlex.quote(impl_prompt)
+        agent_cmd = self.agent_cmd_template.replace("{prompt}", safe_prompt).replace("{model}", self.impl_model)
+        
+        print(f" [2/4] 🤖 Implementing with {self.impl_model}...")
+        agent_success, agent_output, _ = self.run_shell(agent_cmd, ignore_error=True)
+        
+        # Check if agent made any changes
+        if not self.has_changes():
+            print(" [X] ⚠️  Implementation produced NO changes!")
+            return False
+        
+        print(" [3/4] 📊 Changes detected:")
+        print(self.get_diff_summary())
+        
+        # Verify implementation
+        print(f" [4/4] ⚖️  Running tests to verify implementation...")
+        test_passed, test_output, _ = self.run_shell(self.verify_cmd, ignore_error=True)
+        
+        if test_passed:
+            print(" ✅ Implementation successful! Tests pass.")
+            # Commit the implementation
+            commit_success, commit_output, _ = self.run_shell(
+                f"git add . && git commit -m 'Implemented: {task[:50]}'",
+                ignore_error=True
+            )
+            return commit_success
+        else:
+            print(" [X] 💥 Tests still failing:")
+            print(f"---\n{test_output[:300]}...\n---")
+            return False
+
+    def execute_two_phase(self, task):
+        """Execute task using two-phase architect/intern approach."""
+        print(f"--- 🕵️ SUPERVISOR STARTED (TWO-PHASE MODE) ---")
+        print(f"Target: {os.getcwd()}")
+        print(f"Task: {task}")
+        print(f"Test Model: {self.test_model}")
+        print(f"Implementation Model: {self.impl_model}")
+        
+        # Parse context files from task
+        context_files = self.parse_context_files(task)
+        if context_files is None:
+            context_files = self.get_default_context_files(task)
+        
+        if context_files:
+            print(f" [Context] 📁 Loading {len(context_files)} file(s): {', '.join(context_files)}")
+        else:
+            print(f" [Context] ⚠️  No context files specified or detected")
+        
+        # Safety snapshot
+        print(" [Safety] 💾 Stashing clean state...")
+        self.run_shell("git stash push -m 'Orchestrator Safety Snapshot'", ignore_error=True)
+        
+        # Phase 1: Test Generation
+        if not self.run_test_generation_phase(task, context_files):
+            print("\n [!] ❌ Test generation failed. Reverting...")
+            self.run_shell("git reset --hard HEAD", ignore_error=True)
+            self.run_shell("git stash pop", ignore_error=True)
+            return False
+        
+        # Phase 2: Implementation
+        if not self.run_implementation_phase(task, context_files):
+            print("\n [!] ❌ Implementation failed. Reverting...")
+            self.run_shell("git reset --hard HEAD~1", ignore_error=True)  # Remove both commits
+            self.run_shell("git clean -fd", ignore_error=True)  # Clean untracked files
+            self.run_shell("git stash pop", ignore_error=True)
+            return False
+        
+        print("\n [!] ✅ TWO-PHASE EXECUTION COMPLETE!")
+        return True
+
     def execute(self, task):
+        # Route to two-phase mode if enabled
+        if self.two_phase_mode:
+            return self.execute_two_phase(task)
+        
+        # Original single-phase execution
         print(f"--- 🕵️ SUPERVISOR STARTED ---")
         print(f"Target: {os.getcwd()}")
         print(f"Task: {task}")
@@ -221,6 +383,8 @@ if __name__ == "__main__":
     parser.add_argument("--verify", default=DEFAULT_VERIFIER, help="Command to verify success (default: pytest)")
     parser.add_argument("--agent", default=DEFAULT_AGENT, help="Agent command template (use {model} for model substitution)")
     parser.add_argument("--models", help="Comma-separated list of models to try in escalation order (e.g., 'claude-3-haiku,claude-3-5-sonnet')")
+    parser.add_argument("--test-model", help="Model to use for test generation phase (enables two-phase mode)")
+    parser.add_argument("--impl-model", help="Model to use for implementation phase (enables two-phase mode)")
     
     args = parser.parse_args()
     
@@ -229,5 +393,6 @@ if __name__ == "__main__":
     if args.models:
         models = [m.strip() for m in args.models.split(',')]
     
-    loop = RalphLoop(args.agent, args.verify, MAX_RETRIES, models=models)
+    loop = RalphLoop(args.agent, args.verify, MAX_RETRIES, models=models, 
+                     test_model=args.test_model, impl_model=args.impl_model)
     loop.execute(args.task)

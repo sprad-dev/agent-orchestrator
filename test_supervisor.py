@@ -398,5 +398,241 @@ touch output.txt
             self.assertIn("# Source code", prompt)
 
 
+class TestTwoPhaseMode(unittest.TestCase):
+    """Tests for two-phase test-driven execution."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        
+        # Initialize git repo
+        os.system("git init > /dev/null 2>&1")
+        os.system("git config user.email 'test@test.com' > /dev/null 2>&1")
+        os.system("git config user.name 'Test User' > /dev/null 2>&1")
+        
+        # Create initial commit
+        Path("dummy.txt").write_text("initial")
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'initial' > /dev/null 2>&1")
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_two_phase_mode_enabled(self):
+        """Test that two-phase mode is enabled when both models specified."""
+        loop = RalphLoop("echo {prompt}", "true", 1, 
+                        test_model="claude-3-5-sonnet", 
+                        impl_model="claude-3-haiku")
+        self.assertTrue(loop.two_phase_mode)
+
+    def test_two_phase_mode_disabled(self):
+        """Test that two-phase mode is disabled by default."""
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        self.assertFalse(loop.two_phase_mode)
+
+    def test_test_generation_phase_creates_files(self):
+        """Test that test generation phase creates test files."""
+        # Create mock agent that creates a test file
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+# Create a test file
+cat > test_example.py << 'EOF'
+def test_example():
+    assert False, "Not implemented yet"
+EOF
+""")
+        agent_script.chmod(0o755)
+        
+        # Add agent to git
+        os.system("git add agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        loop = RalphLoop("./agent.sh {prompt} {model}", "pytest", 1,
+                        test_model="sonnet", impl_model="haiku")
+        
+        result = loop.run_test_generation_phase("Create example function", [])
+        
+        # Should succeed and create test file
+        self.assertTrue(result)
+        self.assertTrue(Path("test_example.py").exists())
+        
+        # Test file should be committed
+        status = os.popen("git status --porcelain").read().strip()
+        self.assertEqual(status, "")
+
+    def test_implementation_phase_runs_after_tests(self):
+        """Test that implementation phase runs tests and implements code."""
+        # Create a failing test
+        Path("test_add.py").write_text("""
+def test_add():
+    from calculator import add
+    assert add(2, 3) == 5
+""")
+        
+        # Commit test
+        os.system("git add test_add.py > /dev/null 2>&1")
+        os.system("git commit -m 'add test' > /dev/null 2>&1")
+        
+        # Create mock agent that implements the function
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+# Implement the add function
+cat > calculator.py << 'EOF'
+def add(a, b):
+    return a + b
+EOF
+""")
+        agent_script.chmod(0o755)
+        
+        # Add agent to git
+        os.system("git add agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        loop = RalphLoop("./agent.sh {prompt} {model}", "python -m pytest test_add.py", 1,
+                        test_model="sonnet", impl_model="haiku")
+        
+        result = loop.run_implementation_phase("Implement add function", [])
+        
+        # Should succeed
+        self.assertTrue(result)
+        self.assertTrue(Path("calculator.py").exists())
+
+    def test_two_phase_execute_end_to_end(self):
+        """Test complete two-phase execution workflow."""
+        # Create test generation agent
+        test_agent = Path("test_agent.sh")
+        test_agent.write_text("""#!/bin/bash
+cat > test_multiply.py << 'EOF'
+def test_multiply():
+    from calc import multiply
+    assert multiply(3, 4) == 12
+EOF
+""")
+        test_agent.chmod(0o755)
+        
+        # Create implementation agent
+        impl_agent = Path("impl_agent.sh")
+        impl_agent.write_text("""#!/bin/bash
+cat > calc.py << 'EOF'
+def multiply(a, b):
+    return a * b
+EOF
+""")
+        impl_agent.chmod(0o755)
+        
+        # Add agents to git
+        os.system("git add test_agent.sh impl_agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agents' > /dev/null 2>&1")
+        
+        # Create wrapper that routes to correct agent based on prompt
+        wrapper = Path("wrapper.sh")
+        wrapper.write_text("""#!/bin/bash
+if echo "$1" | grep -q "Generate pytest"; then
+    ./test_agent.sh "$@"
+else
+    ./impl_agent.sh "$@"
+fi
+""")
+        wrapper.chmod(0o755)
+        
+        os.system("git add wrapper.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add wrapper' > /dev/null 2>&1")
+        
+        loop = RalphLoop("./wrapper.sh {prompt} {model}", "python -m pytest test_multiply.py", 1,
+                        test_model="sonnet", impl_model="haiku")
+        
+        result = loop.execute_two_phase("Create multiply function")
+        
+        # Should succeed with both test and implementation committed
+        self.assertTrue(result)
+        self.assertTrue(Path("test_multiply.py").exists())
+        self.assertTrue(Path("calc.py").exists())
+        
+        # Should have 2 new commits (test + impl)
+        log = os.popen("git log --oneline").read()
+        commits = [line for line in log.strip().split('\n') if line]
+        self.assertGreaterEqual(len(commits), 3)  # initial + test + impl
+
+    def test_two_phase_rollback_on_test_gen_failure(self):
+        """Test that two-phase mode rolls back if test generation fails."""
+        # Create agent that fails to produce changes
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+# Don't create any files
+echo "Failed to generate tests"
+exit 1
+""")
+        agent_script.chmod(0o755)
+        
+        os.system("git add agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        loop = RalphLoop("./agent.sh {prompt} {model}", "pytest", 1,
+                        test_model="sonnet", impl_model="haiku")
+        
+        result = loop.execute_two_phase("Create example")
+        
+        # Should fail
+        self.assertFalse(result)
+        
+        # Working directory should be clean
+        status = os.popen("git status --porcelain").read().strip()
+        self.assertEqual(status, "")
+
+    def test_two_phase_rollback_on_impl_failure(self):
+        """Test that two-phase mode rolls back both phases if implementation fails."""
+        # Create test generation agent
+        test_agent = Path("test_agent.sh")
+        test_agent.write_text("""#!/bin/bash
+cat > test_fail.py << 'EOF'
+def test_something():
+    assert False, "Always fails"
+EOF
+""")
+        test_agent.chmod(0o755)
+        
+        # Create implementation agent that doesn't fix the test
+        impl_agent = Path("impl_agent.sh")
+        impl_agent.write_text("""#!/bin/bash
+# Create file but don't fix test
+touch output.py
+""")
+        impl_agent.chmod(0o755)
+        
+        os.system("git add test_agent.sh impl_agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agents' > /dev/null 2>&1")
+        
+        # Create wrapper
+        wrapper = Path("wrapper.sh")
+        wrapper.write_text("""#!/bin/bash
+if echo "$1" | grep -q "Generate pytest"; then
+    ./test_agent.sh "$@"
+else
+    ./impl_agent.sh "$@"
+fi
+""")
+        wrapper.chmod(0o755)
+        
+        os.system("git add wrapper.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add wrapper' > /dev/null 2>&1")
+        
+        loop = RalphLoop("./wrapper.sh {prompt} {model}", "python -m pytest test_fail.py", 1,
+                        test_model="sonnet", impl_model="haiku")
+        
+        result = loop.execute_two_phase("Create something")
+        
+        # Should fail
+        self.assertFalse(result)
+        
+        # Both test and implementation should be rolled back
+        self.assertFalse(Path("test_fail.py").exists())
+        self.assertFalse(Path("output.py").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

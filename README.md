@@ -4,6 +4,31 @@ A specialized CLI tool for supervising AI coding agents with surgical context ma
 
 ## Features
 
+### Two-Phase Test-Driven Execution (Architect vs Intern)
+
+The supervisor supports a two-phase execution model where an expensive "architect" model writes tests and a cheap "intern" model implements the code. This is the highest-leverage optimization technique.
+
+**Strategy:**
+
+- **Phase 1 (Smart Model)**: Generates comprehensive pytest tests that specify exact behavior
+- **Phase 2 (Cheap Model)**: Implements minimal code to make tests pass via Red-Green-Refactor
+
+**Usage:**
+
+```bash
+# Two-phase mode with smart test generation and cheap implementation
+./supervisor.py "Add user authentication" \
+  --test-model "claude-3-5-sonnet" \
+  --impl-model "claude-3-haiku"
+```
+
+**Benefits:**
+
+- **Massive cost reduction**: Haiku handles implementation (bulk of tokens)
+- **Quality tests**: Sonnet/Opus writes correct specifications
+- **Test-driven**: Tests committed first as backpressure artifacts
+- **Clear separation**: Architecture thinking vs mechanical implementation
+
 ### Escalation Protocol (Try-Catch Pattern)
 
 The supervisor implements intelligent model escalation - starting with cheaper models and automatically escalating to more powerful models only on failure.
