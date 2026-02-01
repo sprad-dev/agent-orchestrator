@@ -13,6 +13,7 @@ import shlex
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
 from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content
+from src.preconditions import check_git_clean
 
 
 DEFAULT_MODELS = ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"]
@@ -32,6 +33,13 @@ class EscalationExecutor:
         print(f"Target: {os.getcwd()}")
         print(f"Task: {task}")
         print(f"Escalation Chain: {' -> '.join(self.models)}")
+
+        # Precondition: Check git working tree is clean
+        passed, message = check_git_clean()
+        if not passed:
+            print(f"\n [X] PRECONDITION FAILED: {message}")
+            print("     Commit or stash changes before running supervisor.")
+            return False
 
         # Parse context files from task
         context_files = parse_context_files(task)

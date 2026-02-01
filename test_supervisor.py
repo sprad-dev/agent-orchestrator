@@ -1089,5 +1089,86 @@ exit 0
         self.assertIsNone(files)
 
 
+class TestPreconditionChecks(unittest.TestCase):
+    """Tests for execution preconditions."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.test_dir = tempfile.mkdtemp()
+        self.original_cwd = os.getcwd()
+        os.chdir(self.test_dir)
+        
+        # Initialize git repo
+        os.system("git init > /dev/null 2>&1")
+        os.system("git config user.email 'test@test.com' > /dev/null 2>&1")
+        os.system("git config user.name 'Test User' > /dev/null 2>&1")
+        
+        # Create initial commit
+        Path("dummy.txt").write_text("initial")
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'initial' > /dev/null 2>&1")
+
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.test_dir)
+
+    def test_git_clean_precondition_passes_when_clean(self):
+        """Test that execution proceeds when working tree is clean."""
+        # Create a simple agent that makes changes
+        agent_script = Path("agent.sh")
+        agent_script.write_text("""#!/bin/bash
+echo "output" > result.txt
+exit 0
+""")
+        agent_script.chmod(0o755)
+        
+        os.system("git add agent.sh > /dev/null 2>&1")
+        os.system("git commit -m 'add agent' > /dev/null 2>&1")
+        
+        loop = RalphLoop("./agent.sh {prompt} {model}", "true", 1, 
+                        models=["test-model"])
+        
+        # Should succeed because working tree is clean
+        result = loop.execute("test task")
+        self.assertTrue(result)
+
+    def test_git_clean_precondition_fails_with_uncommitted_changes(self):
+        """Test that execution fails when working tree has uncommitted changes."""
+        # Create uncommitted changes
+        Path("uncommitted.txt").write_text("uncommitted content")
+        
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # Should fail due to uncommitted changes
+        result = loop.execute("test task")
+        self.assertFalse(result)
+
+    def test_git_clean_precondition_fails_with_staged_changes(self):
+        """Test that execution fails when working tree has staged changes."""
+        # Create staged changes
+        Path("staged.txt").write_text("staged content")
+        os.system("git add staged.txt > /dev/null 2>&1")
+        
+        loop = RalphLoop("echo {prompt}", "true", 1)
+        
+        # Should fail due to staged changes
+        result = loop.execute("test task")
+        self.assertFalse(result)
+
+    def test_git_clean_precondition_two_phase_mode(self):
+        """Test that git clean precondition works in two-phase mode."""
+        # Create uncommitted changes
+        Path("uncommitted.txt").write_text("uncommitted content")
+        
+        loop = RalphLoop("echo {prompt}", "pytest", 1,
+                        test_model="sonnet", impl_model="haiku")
+        
+        # Should fail due to uncommitted changes even in two-phase mode
+        result = loop.execute("test task")
+        self.assertFalse(result)
+
+
 if __name__ == "__main__":
     unittest.main()

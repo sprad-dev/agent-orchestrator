@@ -12,6 +12,7 @@ import shlex
 
 from src.context import build_static_context, parse_context_files, get_default_context_files
 from src.shell import run_shell, has_changes, get_diff_summary
+from src.preconditions import check_git_clean
 
 
 class TwoPhaseExecutor:
@@ -146,6 +147,13 @@ Implement the code now."""
         print(f"Task: {task}")
         print(f"Test Model: {self.test_model}")
         print(f"Implementation Model: {self.impl_model}")
+
+        # Precondition: Check git working tree is clean
+        passed, message = check_git_clean()
+        if not passed:
+            print(f"\n [X] PRECONDITION FAILED: {message}")
+            print("     Commit or stash changes before running supervisor.")
+            return False
 
         # Parse context files from task
         context_files = parse_context_files(task)
