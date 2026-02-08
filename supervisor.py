@@ -147,12 +147,25 @@ def main():
                         help="Maximum cost per run in USD (e.g., 1.00)")
     parser.add_argument("--max-tokens", type=int,
                         help="Maximum tokens per run (e.g., 100000)")
+    parser.add_argument("--self-check", action="store_true",
+                        help="Run verification pipeline against own codebase (dogfood mode)")
+    parser.add_argument("--self-check-ref", default="HEAD~1",
+                        help="Git ref to diff against for --self-check (default: HEAD~1)")
     parser.add_argument("--stats", action="store_true",
                         help="Show execution statistics and exit")
     parser.add_argument("--stats-days", type=int,
                         help="Number of days to include in stats (default: all time)")
 
     args = parser.parse_args()
+
+    # Handle --self-check command
+    if args.self_check:
+        from src.verification.self_check import run_self_check
+        success = run_self_check(
+            verify_cmd=args.verify,
+            diff_ref=args.self_check_ref
+        )
+        sys.exit(0 if success else 1)
 
     # Handle --stats command
     if args.stats:
@@ -163,7 +176,7 @@ def main():
 
     # Validate task argument
     if not args.task:
-        parser.error("task argument is required (unless using --stats)")
+        parser.error("task argument is required (unless using --stats or --self-check)")
 
     # Parse models list if provided
     models = None
