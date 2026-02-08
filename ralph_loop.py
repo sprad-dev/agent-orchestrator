@@ -118,7 +118,9 @@ class RalphLoop:
         max_iterations: int = 5,
         max_cost: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        supervisor_cmd: str = "./supervisor.py"
+        supervisor_cmd: str = "./supervisor.py",
+        agent_cmd: str = "claude {prompt}",
+        fallback_agents: Optional[List[str]] = None
     ):
         self.task_description = task_description
         self.verify_cmd = verify_cmd
@@ -126,6 +128,8 @@ class RalphLoop:
         self.max_cost = max_cost
         self.max_tokens = max_tokens
         self.supervisor_cmd = supervisor_cmd
+        self.agent_cmd = agent_cmd
+        self.fallback_agents = fallback_agents or []
         self.spec_tracker = SpecTracker()
         self.iteration = 0
 
@@ -140,7 +144,7 @@ class RalphLoop:
         return result.stdout if result.returncode == 0 else ""
 
     def _run_supervisor(self, prompt: str) -> Tuple[bool, str]:
-        """Run supervisor.py with the given prompt.
+        """Run supervisor.py with the given prompt, trying fallbacks if primary fails.
 
         Args:
             prompt: Task prompt to send to supervisor
@@ -148,31 +152,66 @@ class RalphLoop:
         Returns:
             Tuple of (success, output)
         """
-        # Build supervisor command
-        cmd_parts = [self.supervisor_cmd, prompt]
+        # Build list of agents to try (primary + fallbacks)
+        agents_to_try = [self.agent_cmd] + self.fallback_agents
 
-        if self.max_cost:
-            cmd_parts.extend(['--max-cost', str(self.max_cost)])
+        last_output = ""
 
-        if self.max_tokens:
-            cmd_parts.extend(['--max-tokens', str(self.max_tokens)])
+        for agent_idx, agent_cmd in enumerate(agents_to_try):
+            is_fallback = agent_idx > 0
+            agent_label = f"Fallback {agent_idx}" if is_fallback else "Primary"
 
-        # Add verify command
-        cmd_parts.extend(['--verify', self.verify_cmd])
+            if is_fallback:
+                print(f"\n [!] Primary agent failed, trying fallback: {agent_cmd}")
 
-        cmd = ' '.join(f"'{part}'" if ' ' in part else part for part in cmd_parts)
+            # Build supervisor command
+            cmd_parts = [self.supervisor_cmd, prompt]
 
-        print(f"\n [exec] {cmd}")
+            if self.max_cost:
+                cmd_parts.extend(['--max-cost', str(self.max_cost)])
 
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True
-        )
+            if self.max_tokens:
+                cmd_parts.extend(['--max-tokens', str(self.max_tokens)])
 
-        output = result.stdout + result.stderr
-        return result.returncode == 0, output
+            # Add verify command
+            cmd_parts.extend(['--verify', self.verify_cmd])
+
+            # Add agent command
+            cmd_parts.extend(['--agent', agent_cmd])
+
+            cmd = ' '.join(f"'{part}'" if ' ' in part else part for part in cmd_parts)
+
+            print(f"\n [exec] ({agent_label}) {cmd}")
+
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+
+            output = result.stdout + result.stderr
+            last_output = output
+
+            if result.returncode == 0:
+                if is_fallback:
+                    print(f" [✓] Fallback agent succeeded: {agent_cmd}")
+                return True, output
+
+            # Check if failure was due to budget/rate limit (should try fallback)
+            if any(indicator in output.lower() for indicator in [
+                'rate limit', 'usage limit', 'quota exceeded',
+                'budget exceeded', '429', 'too many requests'
+            ]):
+                print(f" [X] {agent_label} hit limit, trying next agent...")
+                continue
+            else:
+                # Other failure (verification, etc.) - don't try fallback
+                print(f" [X] {agent_label} failed (not a limit issue)")
+                return False, output
+
+        print(f" [X] All agents exhausted ({len(agents_to_try)} tried)")
+        return False, last_output
 
     def _build_initial_prompt(self) -> str:
         """Build prompt for first iteration."""
@@ -225,6 +264,9 @@ Focus on making the verification pass."""
         print("=== RALPH LOOP STARTED ===")
         print(f"Task: {self.task_description}")
         print(f"Max Iterations: {self.max_iterations}")
+        print(f"Primary Agent: {self.agent_cmd}")
+        if self.fallback_agents:
+            print(f"Fallback Agents: {', '.join(self.fallback_agents)}")
         if self.max_cost:
             print(f"Cost Budget: ${self.max_cost}")
         if self.max_tokens:
@@ -298,6 +340,15 @@ Examples:
 
   # Custom verification
   ./ralph_loop.py "Refactor API" --verify "pytest tests/api/"
+
+  # With GitHub Copilot CLI as fallback
+  ./ralph_loop.py "Implement feature X" \\
+    --fallback-agents "gh copilot suggest -t shell {prompt}"
+
+  # Multiple fallbacks (Copilot, then Aider)
+  ./ralph_loop.py "Fix bug Y" \\
+    --agent "claude {prompt}" \\
+    --fallback-agents "gh copilot suggest -t shell {prompt},aider --yes {prompt}"
         """
     )
 
@@ -331,8 +382,22 @@ Examples:
         default="./supervisor.py",
         help="Path to supervisor.py (default: ./supervisor.py)"
     )
+    parser.add_argument(
+        "--agent",
+        default="claude {prompt}",
+        help="Primary agent command template (default: 'claude {prompt}')"
+    )
+    parser.add_argument(
+        "--fallback-agents",
+        help="Comma-separated fallback agent commands (e.g., 'gh copilot suggest {prompt},aider {prompt}')"
+    )
 
     args = parser.parse_args()
+
+    # Parse fallback agents
+    fallback_agents = None
+    if args.fallback_agents:
+        fallback_agents = [agent.strip() for agent in args.fallback_agents.split(',')]
 
     loop = RalphLoop(
         task_description=args.task,
@@ -340,7 +405,9 @@ Examples:
         max_iterations=args.max_iterations,
         max_cost=args.max_cost,
         max_tokens=args.max_tokens,
-        supervisor_cmd=args.supervisor
+        supervisor_cmd=args.supervisor,
+        agent_cmd=args.agent,
+        fallback_agents=fallback_agents
     )
 
     success = loop.run()

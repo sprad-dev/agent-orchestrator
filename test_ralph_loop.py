@@ -155,6 +155,26 @@ class TestRalphLoop(unittest.TestCase):
         diff = loop._get_git_diff()
         self.assertIsInstance(diff, str)
 
+    def test_fallback_agents_initialization(self):
+        """Test initialization with fallback agents."""
+        loop = RalphLoop(
+            task_description="Test",
+            agent_cmd="claude {prompt}",
+            fallback_agents=["gh copilot suggest {prompt}", "aider {prompt}"]
+        )
+
+        self.assertEqual(loop.agent_cmd, "claude {prompt}")
+        self.assertEqual(len(loop.fallback_agents), 2)
+        self.assertEqual(loop.fallback_agents[0], "gh copilot suggest {prompt}")
+        self.assertEqual(loop.fallback_agents[1], "aider {prompt}")
+
+    def test_no_fallback_agents(self):
+        """Test initialization without fallback agents."""
+        loop = RalphLoop(task_description="Test")
+
+        self.assertEqual(loop.agent_cmd, "claude {prompt}")
+        self.assertEqual(loop.fallback_agents, [])
+
 
 if __name__ == "__main__":
     unittest.main()

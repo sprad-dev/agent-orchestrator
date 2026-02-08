@@ -78,13 +78,59 @@ Each iteration:
 | `--max-cost` | Max cost per iteration (USD) | None |
 | `--max-tokens` | Max tokens per iteration | None |
 | `--supervisor` | Path to supervisor.py | `./supervisor.py` |
+| `--agent` | Primary agent command template | `claude {prompt}` |
+| `--fallback-agents` | Comma-separated fallback agents | None |
+
+## Fallback Agents
+
+Ralph Loop supports fallback agents for when your primary LLM hits rate/usage limits.
+
+### Basic Fallback
+
+```bash
+./ralph_loop.py "Implement feature" \
+  --fallback-agents "gh copilot suggest -t shell {prompt}"
+```
+
+### Multiple Fallbacks
+
+```bash
+./ralph_loop.py "Complex task" \
+  --agent "claude {prompt}" \
+  --fallback-agents "gh copilot suggest -t shell {prompt},aider --yes --message {prompt}"
+```
+
+### How It Works
+
+1. Primary agent runs first
+2. If it hits a rate/usage limit, fallback is tried
+3. Rate limit detection looks for:
+   - `rate limit exceeded`
+   - `usage limit`
+   - `quota exceeded`
+   - `429` status
+   - `budget exceeded`
+
+### Use Case: Budget Protection
+
+Set a budget and automatically fall back to a cheaper model:
+
+```bash
+./ralph_loop.py "Large refactoring" \
+  --max-cost 0.50 \
+  --fallback-agents "gh copilot suggest -t shell {prompt}"
+```
+
+When Claude hits $0.50, Copilot takes over automatically.
+
+See `agents/README.md` for more agent configurations.
 
 ## Exit Conditions
 
 The loop terminates when:
 1. ✓ **Success**: All verification passes
 2. ✗ **Max iterations**: Reached iteration limit
-3. ✗ **Budget exceeded**: Cost or token budget exceeded
+3. ✗ **Budget exceeded**: Cost or token budget exceeded (all agents)
 
 ## Spec Tracking (Optional)
 
