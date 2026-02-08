@@ -12,6 +12,13 @@ This is the main entry point that delegates to modular components:
 
 import argparse
 import sys
+from pathlib import Path
+
+# Add supervisor.py's parent directory to sys.path so imports work
+# regardless of where this script is invoked from
+SUPERVISOR_DIR = Path(__file__).resolve().parent
+if str(SUPERVISOR_DIR) not in sys.path:
+    sys.path.insert(0, str(SUPERVISOR_DIR))
 
 from src.models import EscalationExecutor, TwoPhaseExecutor, ThreePhaseExecutor
 from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content

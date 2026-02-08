@@ -13,11 +13,32 @@ Progress persists through artifacts (git, files), not agent memory.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+
+def find_supervisor() -> str:
+    """Find supervisor.py - check local directory first, then ralph_loop.py's directory.
+
+    Returns:
+        Path to supervisor.py (absolute if found in ralph_loop.py's dir, relative otherwise)
+    """
+    # Check current directory first
+    if Path("./supervisor.py").exists():
+        return "./supervisor.py"
+
+    # Check ralph_loop.py's directory (agent-orchestrator project)
+    ralph_dir = Path(__file__).resolve().parent
+    supervisor_in_ralph_dir = ralph_dir / "supervisor.py"
+    if supervisor_in_ralph_dir.exists():
+        return str(supervisor_in_ralph_dir)
+
+    # Fallback to relative path (will fail with clear error message)
+    return "./supervisor.py"
 
 
 class SpecTracker:
@@ -379,8 +400,8 @@ Examples:
     )
     parser.add_argument(
         "--supervisor",
-        default="./supervisor.py",
-        help="Path to supervisor.py (default: ./supervisor.py)"
+        default=None,
+        help="Path to supervisor.py (default: auto-detect from current dir or ralph_loop.py's dir)"
     )
     parser.add_argument(
         "--agent",
@@ -399,13 +420,16 @@ Examples:
     if args.fallback_agents:
         fallback_agents = [agent.strip() for agent in args.fallback_agents.split(',')]
 
+    # Auto-detect supervisor path if not specified
+    supervisor_path = args.supervisor if args.supervisor else find_supervisor()
+
     loop = RalphLoop(
         task_description=args.task,
         verify_cmd=args.verify,
         max_iterations=args.max_iterations,
         max_cost=args.max_cost,
         max_tokens=args.max_tokens,
-        supervisor_cmd=args.supervisor,
+        supervisor_cmd=supervisor_path,
         agent_cmd=args.agent,
         fallback_agents=fallback_agents
     )
