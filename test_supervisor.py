@@ -1058,19 +1058,24 @@ exit 0
     def test_empty_context_files_list(self):
         """Test that empty context files list is handled correctly."""
         loop = RalphLoop("echo {prompt}", "true", 1)
-        
-        # Empty list
+
+        # Empty list for build_context returns empty
         context = build_context([])
         self.assertEqual(context, "")
-        
-        # None or empty list returns empty static context
+
+        # build_static_context ALWAYS includes quality gates (Tier 0 backpressure)
+        # Even with None or empty list, it includes anti-pattern suffix and completion manifest
         static_context, size = build_static_context(None)
-        self.assertEqual(static_context, "")
-        self.assertEqual(size, 0)
-        
+        self.assertGreater(len(static_context), 0)
+        self.assertGreater(size, 0)
+        self.assertIn("QUALITY GATES", static_context)
+        self.assertIn("COMPLETION MANIFEST", static_context)
+
         static_context, size = build_static_context([])
-        self.assertEqual(static_context, "")
-        self.assertEqual(size, 0)
+        self.assertGreater(len(static_context), 0)
+        self.assertGreater(size, 0)
+        self.assertIn("QUALITY GATES", static_context)
+        self.assertIn("COMPLETION MANIFEST", static_context)
 
     def test_malformed_task_context_parsing(self):
         """Test that malformed context specifications don't crash."""
