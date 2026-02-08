@@ -414,6 +414,29 @@ class CommitGuard:
             return guard._is_binary_content(file_path)
         return False
 
-    # Future guard hooks:
-    # def validate_commit_message(self, msg): ...  # Message format
-    # def request_human_approval(self): ...  # Human gate
+    def check_commit_message(self, message: str = None) -> Tuple[bool, List[str]]:
+        """Validate commit message format.
+
+        Args:
+            message: Commit message to validate (None reads from git)
+
+        Returns:
+            Tuple of (passed: bool, issues: list)
+        """
+        guard = self.registry.get_guard("commit_message")
+        if guard:
+            result = guard.check(message=message)
+            return result.passed, result.issues
+        return True, []
+
+    def check_human_approval(self) -> Tuple[bool, List[str]]:
+        """Request human approval for commit.
+
+        Returns:
+            Tuple of (passed: bool, issues: list)
+        """
+        guard = self.registry.get_guard("human_approval")
+        if guard:
+            result = guard.check()
+            return result.passed, result.issues
+        return True, []

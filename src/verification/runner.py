@@ -12,6 +12,8 @@ from src.verification.coordinator import LayerCoordinator
 from src.verification.pytest_validator import parse_test_count
 from src.verification.config import VerificationConfig, load_config
 from src.verification.performance_metrics import PerformanceTracker, parse_pytest_results
+from src.verification.regression_detection import RegressionDetectionLayer
+from src.verification.human_approval import HumanApprovalLayer
 
 
 class VerificationRunner:
@@ -53,6 +55,22 @@ class VerificationRunner:
             integration_strict_mode=config.integration_strict_mode
         )
         
+        # Register L4 regression detection layer
+        if config.enable_regression_detection:
+            regression_layer = RegressionDetectionLayer(
+                self.performance_tracker,
+                threshold_percent=config.regression_threshold_percent
+            )
+            self.coordinator.register_layer(regression_layer)
+
+        # Register L5 human approval layer
+        if config.enable_human_approval:
+            approval_layer = HumanApprovalLayer(
+                audit_log_path=config.human_approval_audit_log,
+                auto_approve=config.human_approval_auto_approve
+            )
+            self.coordinator.register_layer(approval_layer)
+
         # Backwards compatibility: expose enable flags
         self._enable_file_exists_check = config.enable_file_exists_check
         self._enable_syntax_check = config.enable_syntax_check
@@ -163,6 +181,14 @@ class VerificationRunner:
 
         # L4: Performance tracking
         self._track_performance(test_duration, pytest_output, output_lines)
+
+        # L4: Regression detection (advisory, does not block pipeline)
+        self._run_regression_check(test_duration, output_lines)
+
+        # L5: Human approval gate (via layer coordinator)
+        if not self._run_human_approval(modified_files, output_lines):
+            return False, "\n".join(output_lines)
+
         return passed, "\n".join(output_lines)
 
     def _run_prechecks(self, modified_files: Optional[List[str]], output_lines: List[str]) -> bool:
@@ -286,6 +312,58 @@ class VerificationRunner:
         """
         return self.performance_tracker
     
-    # Future layer hooks:
-    # def run_human_approval(self): ...  # L5: human gate
+    def _run_regression_check(
+        self,
+        test_duration: float,
+        output_lines: List[str]
+    ) -> None:
+        """Run L4 regression detection via coordinator (advisory only).
+
+        Regression detection is advisory — it warns but does not block
+        the pipeline. Use strict_mode in config to make it blocking.
+
+        Args:
+            test_duration: Duration of test execution
+            output_lines: List to append output to
+        """
+        if 41 not in self.coordinator.layers:
+            return
+
+        _, results = self.coordinator.run_layers(
+            41, test_duration=test_duration
+        )
+
+        for result in results:
+            prefix = "✓" if result.passed else "⚠"
+            output_lines.append(f"{prefix} L4 Regression: {result.message}")
+            if not result.passed and result.error_details:
+                for detail in result.error_details:
+                    output_lines.append(f"  {detail}")
+
+    def _run_human_approval(
+        self,
+        modified_files: Optional[List[str]],
+        output_lines: List[str]
+    ) -> bool:
+        """Run L5 human approval via coordinator.
+
+        Args:
+            modified_files: Files that were modified
+            output_lines: List to append output to
+
+        Returns:
+            True if approved (or layer not registered)
+        """
+        if 50 not in self.coordinator.layers:
+            return True
+
+        passed, results = self.coordinator.run_layers(
+            50, modified_files=modified_files
+        )
+
+        for result in results:
+            prefix = "✓" if result.passed else "✗"
+            output_lines.append(f"{prefix} L5 {result.message}")
+
+        return passed
 

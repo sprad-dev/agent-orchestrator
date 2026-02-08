@@ -54,6 +54,15 @@ class VerificationConfig:
     max_execution_time_seconds: Optional[float] = None
     performance_baseline_path: Optional[str] = None
     
+    # Human approval gate
+    enable_human_approval: bool = False
+    human_approval_audit_log: Optional[str] = None
+    human_approval_auto_approve: bool = False
+
+    # Regression detection
+    enable_regression_detection: bool = True
+    regression_threshold_percent: float = 20.0
+
     # Additional settings
     strict_mode: bool = False
     fail_fast: bool = False
@@ -101,6 +110,11 @@ class VerificationConfig:
             'allow_test_deletion',
             'max_execution_time_seconds',
             'performance_baseline_path',
+            'enable_human_approval',
+            'human_approval_audit_log',
+            'human_approval_auto_approve',
+            'enable_regression_detection',
+            'regression_threshold_percent',
             'strict_mode',
             'fail_fast',
             'verbose',
@@ -188,6 +202,10 @@ class VerificationConfig:
             'enable_coverage_check': self.enable_coverage_check,
             'enable_integration_check': self.enable_integration_check,
             'integration_strict_mode': self.integration_strict_mode,
+            'enable_human_approval': self.enable_human_approval,
+            'human_approval_auto_approve': self.human_approval_auto_approve,
+            'enable_regression_detection': self.enable_regression_detection,
+            'regression_threshold_percent': self.regression_threshold_percent,
             'test_command': self.test_command,
             'test_timeout_seconds': self.test_timeout_seconds,
             'baseline_path': self.baseline_path,
