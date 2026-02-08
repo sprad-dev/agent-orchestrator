@@ -14,7 +14,7 @@ import subprocess
 import os
 from typing import List, Optional
 
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 ADVERSARIAL_PROMPT_TEMPLATE = """You are an adversarial test reviewer. Your job is to find tests that give
@@ -156,15 +156,18 @@ class AdversarialReviewLayer(Layer):
     def level(self) -> int:
         return 70
 
-    def run(self, test_files: Optional[List[str]] = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, test_files: Optional[List[str]] = None, **kwargs) -> LayerResult:
         """Run adversarial review on test files.
 
         Args:
-            test_files: List of test file paths to analyze.
+            context: Optional VerificationContext (test_files read from context)
+            test_files: List of test file paths to analyze (overrides context).
 
         Returns:
             LayerResult with advisory findings (always passes unless strict mode).
         """
+        if test_files is None and context is not None:
+            test_files = context.test_files
         if not test_files:
             return LayerResult(
                 passed=True,

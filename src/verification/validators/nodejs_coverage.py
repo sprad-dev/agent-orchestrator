@@ -8,7 +8,7 @@ import subprocess
 import json
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 class NodeJSCoverageLayer(Layer):
@@ -35,16 +35,19 @@ class NodeJSCoverageLayer(Layer):
         """Layer level (L3)."""
         return 3
 
-    def run(self, changed_files: List[str] = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, changed_files: List[str] = None, **kwargs) -> LayerResult:
         """Check coverage for changed files.
 
         Args:
+            context: Optional VerificationContext with shared pipeline state
             changed_files: List of files to check coverage for
             **kwargs: Ignored (for compatibility)
 
         Returns:
             LayerResult with validation status
         """
+        if changed_files is None and context is not None:
+            changed_files = context.changed_files or context.modified_files
         if not changed_files:
             return LayerResult(
                 passed=True,

@@ -83,6 +83,47 @@ class VerificationConfig:
     # Custom settings (for extensibility)
     custom_settings: Dict[str, Any] = field(default_factory=dict)
     
+    # Track which fields were explicitly set (vs defaulted)
+    _explicit_fields: set = field(default_factory=set, repr=False, compare=False)
+    
+    def __post_init__(self):
+        """Mark all fields as explicit when constructed directly.
+        
+        When config is constructed via VerificationConfig(...), we assume
+        all parameters were intentionally provided, so they should override
+        constructor args. Only from_dict() distinguishes explicit vs default.
+        """
+        # If _explicit_fields is empty, we're being constructed directly (not from_dict)
+        # Mark all fields as explicit
+        if not self._explicit_fields:
+            self._explicit_fields = {
+                'language', 'enable_file_exists_check', 'enable_syntax_check',
+                'enable_test_count_check', 'enable_pytest_validation',
+                'enable_coverage_check', 'enable_integration_check',
+                'integration_strict_mode', 'test_command', 'test_timeout_seconds',
+                'baseline_path', 'coverage_minimum_percent',
+                'coverage_branch_minimum_percent', 'minimum_test_count',
+                'allow_test_deletion', 'max_execution_time_seconds',
+                'performance_baseline_path', 'enable_human_approval',
+                'human_approval_audit_log', 'human_approval_auto_approve',
+                'enable_regression_detection', 'regression_threshold_percent',
+                'enable_test_quality_check', 'enable_adversarial_review',
+                'adversarial_review_model', 'strict_mode', 'fail_fast', 'verbose',
+                'max_retries', 'retry_initial_delay', 'retry_backoff_multiplier',
+                'retry_max_delay', 'retry_jitter'
+            }
+    
+    def is_explicit(self, field_name: str) -> bool:
+        """Check if a field was explicitly set (vs using default value).
+        
+        Args:
+            field_name: Name of the field to check
+            
+        Returns:
+            True if field was explicitly set, False if using default
+        """
+        return field_name in self._explicit_fields
+    
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'VerificationConfig':
         """Create config from dictionary with validation.
@@ -146,6 +187,8 @@ class VerificationConfig:
             config_kwargs['custom_settings'] = custom_settings
         
         config = cls(**config_kwargs)
+        # Mark fields that were explicitly provided in the dict
+        config._explicit_fields = set(key for key in data.keys() if key in known_fields)
         config.validate()
         return config
     
@@ -294,8 +337,10 @@ def load_config(config_path: Optional[str] = None) -> VerificationConfig:
         if config_file.exists():
             return _load_config_file(config_file)
     
-    # No config file found, return defaults
-    return VerificationConfig()
+    # No config file found, return defaults with no explicit fields
+    config = VerificationConfig()
+    config._explicit_fields = set()  # Clear explicit fields for default config
+    return config
 
 
 def _load_config_file(config_path: Path) -> VerificationConfig:

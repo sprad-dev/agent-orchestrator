@@ -5,7 +5,7 @@ Decouples layer management from runner logic.
 """
 
 from typing import List, Dict, Tuple, Optional
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 from src.verification.file_exists import FileExistsLayer
 from src.verification.syntax_check import SyntaxCheckLayer
 from src.verification.test_count import CountBaselineLayer
@@ -137,13 +137,14 @@ class LayerCoordinator:
         for validator in validators:
             self.register_layer(validator)
 
-    def run_layers(self, layer_level: int, **kwargs) -> Tuple[bool, List[LayerResult]]:
+    def run_layers(self, layer_level: int, context: Optional[VerificationContext] = None, **kwargs) -> Tuple[bool, List[LayerResult]]:
         """Execute all layers at a given level.
-        
+
         Args:
             layer_level: Level number to execute (e.g., 1, 2, 3)
-            **kwargs: Parameters to pass to layers
-            
+            context: Optional VerificationContext with shared pipeline state
+            **kwargs: Parameters to pass to layers (backwards compat)
+
         Returns:
             Tuple of (all_passed, results)
             - all_passed: True if all layers at this level passed
@@ -151,16 +152,16 @@ class LayerCoordinator:
         """
         if layer_level not in self.layers:
             return True, []
-        
+
         results = []
         all_passed = True
-        
+
         for layer in self.layers[layer_level]:
             if not layer.is_enabled():
                 continue
-            
+
             try:
-                result = layer.run(**kwargs)
+                result = layer.run(context=context, **kwargs)
                 results.append(result)
                 
                 if not result.passed:
@@ -202,6 +203,7 @@ class LayerCoordinator:
         level: int,
         level_name: str,
         output_lines: List[str],
+        context: Optional[VerificationContext] = None,
         **kwargs
     ) -> Tuple[bool, Optional[str]]:
         """Execute layers at a level and format output.
@@ -210,14 +212,15 @@ class LayerCoordinator:
             level: Layer level to execute
             level_name: Display name for the level (e.g., "FILE EXISTENCE CHECK")
             output_lines: List to append success messages to
-            **kwargs: Parameters to pass to layers
+            context: Optional VerificationContext with shared pipeline state
+            **kwargs: Parameters to pass to layers (backwards compat)
 
         Returns:
             Tuple of (passed, error_output)
             - passed: True if all layers passed
             - error_output: Formatted error message if failed, None otherwise
         """
-        passed, results = self.run_layers(level, **kwargs)
+        passed, results = self.run_layers(level, context=context, **kwargs)
 
         for result in results:
             if result.error_details:

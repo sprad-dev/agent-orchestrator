@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Tuple
 from datetime import datetime
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 class CountBaselineLayer(Layer):
@@ -33,16 +33,19 @@ class CountBaselineLayer(Layer):
         """Layer level (L3)."""
         return 3
     
-    def run(self, test_count: int = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, test_count: int = None, **kwargs) -> LayerResult:
         """Check test count against baseline.
-        
+
         Args:
-            test_count: Number of tests collected
+            context: Optional VerificationContext (test_count read from context)
+            test_count: Number of tests collected (overrides context)
             **kwargs: Ignored (for compatibility)
-            
+
         Returns:
             LayerResult with validation status
         """
+        if test_count is None and context is not None:
+            test_count = context.test_count
         if test_count is None:
             return LayerResult(
                 passed=True,

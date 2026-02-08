@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 @dataclass
@@ -238,16 +238,19 @@ class TestQualityLayer(Layer):
     def level(self) -> int:
         return 60
 
-    def run(self, test_files: Optional[List[str]] = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, test_files: Optional[List[str]] = None, **kwargs) -> LayerResult:
         """Run static test quality analysis.
 
         Args:
-            test_files: Optional list of test files to analyze.
+            context: Optional VerificationContext (test_files read from context)
+            test_files: Optional list of test files to analyze (overrides context).
                         If None, discovers test files in project_path.
 
         Returns:
             LayerResult with advisory warnings (always passes).
         """
+        if test_files is None and context is not None:
+            test_files = context.test_files
         issues = analyze_test_quality(
             project_path=self.project_path,
             test_files=test_files

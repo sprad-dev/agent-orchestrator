@@ -7270,5 +7270,733 @@
     "tests_passed": 1,
     "tests_failed": 0,
     "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T08:39:40.674309",
+    "total_duration": 44.09081816673279,
+    "test_count": 695,
+    "tests_passed": 695,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:04:07.336028",
+    "total_duration": 4.76837158203125e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:04:07.349890",
+    "total_duration": 7.152557373046875e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:04:07.497127",
+    "total_duration": 1.430511474609375e-06,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:04:07.514480",
+    "total_duration": 9.5367431640625e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:04:07.659782",
+    "total_duration": 1.430511474609375e-06,
+    "test_count": 10,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:04:08.295677",
+    "total_duration": 0.0009255409240722656,
+    "test_count": 5,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:04:08.450128",
+    "total_duration": 0.0013988018035888672,
+    "test_count": 0,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:05:02.735297",
+    "total_duration": 0.003616809844970703,
+    "test_count": 5,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:05:02.879529",
+    "total_duration": 0.0033576488494873047,
+    "test_count": 0,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:06:39.334222",
+    "total_duration": 0.5499386787414551,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:28:56.187048",
+    "total_duration": 0.5181689262390137,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:28:57.260657",
+    "total_duration": 0.5044186115264893,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:28:58.275987",
+    "total_duration": 0.5008959770202637,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:28:58.835981",
+    "total_duration": 0.0007402896881103516,
+    "test_count": 5,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:28:59.022830",
+    "total_duration": 0.001878976821899414,
+    "test_count": 0,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:28:59.621525",
+    "total_duration": 0.471651554107666,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:00.226995",
+    "total_duration": 0.4750652313232422,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:00.871377",
+    "total_duration": 0.49496984481811523,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:01.414833",
+    "total_duration": 0.5213320255279541,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:01.962867",
+    "total_duration": 0.5388321876525879,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:02.482968",
+    "total_duration": 0.49725890159606934,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:03.973506",
+    "total_duration": 0.5056064128875732,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:04.475426",
+    "total_duration": 0.48471760749816895,
+    "test_count": 2,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:05.007994",
+    "total_duration": 0.5058591365814209,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:05.502237",
+    "total_duration": 0.48116230964660645,
+    "test_count": 2,
+    "tests_passed": 1,
+    "tests_failed": 1,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:05.987427",
+    "total_duration": 0.46387243270874023,
+    "test_count": 3,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:06.508590",
+    "total_duration": 0.5070343017578125,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:07.044916",
+    "total_duration": 0.5198836326599121,
+    "test_count": 3,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:07.611362",
+    "total_duration": 0.5426855087280273,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:08.099083",
+    "total_duration": 0.47481250762939453,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:08.609002",
+    "total_duration": 0.49325037002563477,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:09.616686",
+    "total_duration": 0.4903564453125,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:29:10.139479",
+    "total_duration": 0.50771164894104,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:31:56.954077",
+    "total_duration": 7.152557373046875e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:31:56.971435",
+    "total_duration": 7.152557373046875e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:31:57.108923",
+    "total_duration": 9.5367431640625e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:31:57.129654",
+    "total_duration": 4.76837158203125e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:31:57.269007",
+    "total_duration": 1.1920928955078125e-06,
+    "test_count": 10,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:31:57.875485",
+    "total_duration": 0.47376108169555664,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:31:58.817637",
+    "total_duration": 0.45575499534606934,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:31:59.786764",
+    "total_duration": 0.4768056869506836,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:00.342316",
+    "total_duration": 0.0007824897766113281,
+    "test_count": 5,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:01.556761",
+    "total_duration": 0.0017337799072265625,
+    "test_count": 0,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:02.203014",
+    "total_duration": 0.4924943447113037,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:02.794456",
+    "total_duration": 0.44884276390075684,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:03.409179",
+    "total_duration": 0.4694335460662842,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:03.907080",
+    "total_duration": 0.4823038578033447,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:04.403047",
+    "total_duration": 0.48157835006713867,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:04.877110",
+    "total_duration": 0.4596576690673828,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:06.312550",
+    "total_duration": 0.4610271453857422,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:06.796796",
+    "total_duration": 0.47108006477355957,
+    "test_count": 2,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:07.296632",
+    "total_duration": 0.4839332103729248,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:07.802588",
+    "total_duration": 0.48853635787963867,
+    "test_count": 2,
+    "tests_passed": 1,
+    "tests_failed": 1,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:08.298059",
+    "total_duration": 0.47500038146972656,
+    "test_count": 3,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:08.780588",
+    "total_duration": 0.4694559574127197,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:09.272276",
+    "total_duration": 0.48035478591918945,
+    "test_count": 3,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:09.770554",
+    "total_duration": 0.48308658599853516,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:10.273254",
+    "total_duration": 0.48793458938598633,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:10.816462",
+    "total_duration": 0.49964284896850586,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:11.928007",
+    "total_duration": 0.4869973659515381,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:32:12.454783",
+    "total_duration": 0.5071446895599365,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:33:12.682989",
+    "total_duration": 0.05648660659790039,
+    "test_count": 0,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:10.059881",
+    "total_duration": 7.152557373046875e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:10.073711",
+    "total_duration": 4.76837158203125e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:10.215519",
+    "total_duration": 9.5367431640625e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:10.233086",
+    "total_duration": 4.76837158203125e-07,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:10.376964",
+    "total_duration": 9.5367431640625e-07,
+    "test_count": 10,
+    "tests_passed": 10,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:11.052645",
+    "total_duration": 0.5153634548187256,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:12.025865",
+    "total_duration": 0.4846765995025635,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:13.033800",
+    "total_duration": 0.4732630252838135,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:13.649605",
+    "total_duration": 0.0007302761077880859,
+    "test_count": 5,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:13.776459",
+    "total_duration": 0.0009038448333740234,
+    "test_count": 0,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:15.472879",
+    "total_duration": 0.4692964553833008,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:16.048266",
+    "total_duration": 0.4589719772338867,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:16.714441",
+    "total_duration": 0.5265665054321289,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:17.194960",
+    "total_duration": 0.4655342102050781,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:17.648163",
+    "total_duration": 0.4424471855163574,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:18.148878",
+    "total_duration": 0.4790005683898926,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:19.664064",
+    "total_duration": 0.4866948127746582,
+    "test_count": 2,
+    "tests_passed": 2,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:20.157681",
+    "total_duration": 0.4686856269836426,
+    "test_count": 2,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:20.636233",
+    "total_duration": 0.46224427223205566,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:21.135643",
+    "total_duration": 0.48326706886291504,
+    "test_count": 2,
+    "tests_passed": 1,
+    "tests_failed": 1,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:21.676858",
+    "total_duration": 0.5268423557281494,
+    "test_count": 3,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:22.162380",
+    "total_duration": 0.46746230125427246,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:22.672855",
+    "total_duration": 0.4983706474304199,
+    "test_count": 3,
+    "tests_passed": 3,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:23.160259",
+    "total_duration": 0.4649181365966797,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:23.658233",
+    "total_duration": 0.48702239990234375,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:24.134602",
+    "total_duration": 0.46391844749450684,
+    "test_count": 5,
+    "tests_passed": 5,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:25.136465",
+    "total_duration": 0.465747594833374,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
+  },
+  {
+    "timestamp": "2026-02-08T10:34:25.642826",
+    "total_duration": 0.49261903762817383,
+    "test_count": 1,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "individual_tests": {}
   }
 ]

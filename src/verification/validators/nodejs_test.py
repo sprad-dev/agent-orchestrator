@@ -7,7 +7,7 @@ Prevents false positives from empty test suites.
 import subprocess
 import re
 from typing import Tuple
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 class NodeJSTestValidatorLayer(Layer):
@@ -32,10 +32,11 @@ class NodeJSTestValidatorLayer(Layer):
         """Layer level (L3)."""
         return 3
 
-    def run(self, test_output: str = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, test_output: str = None, **kwargs) -> LayerResult:
         """Validate that Node.js tests ran.
 
         Args:
+            context: Optional VerificationContext with shared pipeline state
             test_output: Test output string (from jest/mocha/etc)
             **kwargs: Ignored (for compatibility)
 

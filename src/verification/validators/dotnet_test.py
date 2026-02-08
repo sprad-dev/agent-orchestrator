@@ -5,7 +5,7 @@ Prevents false positives from empty test suites.
 """
 
 import re
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 class DotNetTestValidatorLayer(Layer):
@@ -25,10 +25,11 @@ class DotNetTestValidatorLayer(Layer):
         """Layer level (L3)."""
         return 3
 
-    def run(self, test_output: str = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, test_output: str = None, **kwargs) -> LayerResult:
         """Validate that .NET tests ran.
 
         Args:
+            context: Optional VerificationContext with shared pipeline state
             test_output: Test output string (from dotnet test)
             **kwargs: Ignored (for compatibility)
 

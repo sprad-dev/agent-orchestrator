@@ -7,7 +7,7 @@ Provides immediate feedback on parse errors.
 import py_compile
 from pathlib import Path
 from typing import List, Tuple
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 class SyntaxCheckLayer(Layer):
@@ -27,16 +27,19 @@ class SyntaxCheckLayer(Layer):
         """Layer level (L2)."""
         return 2
     
-    def run(self, files: List[str] = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, files: List[str] = None, **kwargs) -> LayerResult:
         """Validate Python syntax on files.
-        
+
         Args:
-            files: List of file paths to check
+            context: Optional VerificationContext (files read from context.modified_files)
+            files: List of file paths to check (overrides context)
             **kwargs: Ignored (for compatibility)
-            
+
         Returns:
             LayerResult with validation status
         """
+        if files is None and context is not None:
+            files = context.modified_files
         if not files:
             return LayerResult(
                 passed=True,

@@ -9,6 +9,7 @@ import time
 from typing import List, Optional, Tuple
 from src.shell import run_shell
 from src.verification.coordinator import LayerCoordinator
+from src.verification.layer import VerificationContext
 from src.verification.pytest_validator import parse_test_count
 from src.verification.config import VerificationConfig, load_config
 from src.verification.performance_metrics import PerformanceTracker, parse_pytest_results
@@ -37,9 +38,9 @@ class VerificationRunner:
         
         self.config = config
         
-        # Use config values, falling back to constructor args for backwards compatibility
-        self.verify_cmd = config.test_command if config.test_command != "pytest" else verify_cmd
-        self.baseline_path = config.baseline_path if config.baseline_path != ".test_baseline" else baseline_path
+        # Use config values if explicitly set, otherwise use constructor args
+        self.verify_cmd = config.test_command if config.is_explicit("test_command") else verify_cmd
+        self.baseline_path = config.baseline_path if config.is_explicit("baseline_path") else baseline_path
         self.performance_tracker = PerformanceTracker(metrics_path)
         
         # Initialize layer coordinator
@@ -178,53 +179,74 @@ class VerificationRunner:
         Returns:
             Tuple of (passed: bool, output: str)
         """
+        # Build shared context — flows through all layers
+        ctx = VerificationContext(modified_files=modified_files)
+
         output_lines = []
         # L1-L2: Pre-checks (file existence, syntax)
-        if not self._run_prechecks(modified_files, output_lines):
+        if not self._run_prechecks(ctx, output_lines):
             return False, "\n".join(output_lines)
 
         # Run tests with timing
         passed, pytest_output, test_duration = self._execute_tests()
         output_lines.append(pytest_output)
 
+        # Populate context with test results
+        ctx.pytest_output = pytest_output
+        ctx.test_duration = test_duration
+        ctx.test_count = ctx.get_cached(
+            "test_count", lambda: parse_test_count(pytest_output)
+        )
+        ctx.changed_files = modified_files
+
+        # Derive test_files for L6/L7
+        if modified_files:
+            ctx.test_files = [
+                f for f in modified_files
+                if f.endswith(".py") and (
+                    f.split("/")[-1].startswith("test_") or
+                    f.endswith("_test.py")
+                )
+            ]
+
         # L3: Post-test validation
-        if not self._run_postchecks(pytest_output, modified_files, output_lines):
+        if not self._run_postchecks(ctx, output_lines):
             return False, "\n".join(output_lines)
 
         # L4: Performance tracking
-        self._track_performance(test_duration, pytest_output, output_lines)
+        self._track_performance(ctx, output_lines)
 
         # L4: Regression detection (advisory, does not block pipeline)
-        self._run_regression_check(test_duration, output_lines)
+        self._run_regression_check(ctx, output_lines)
 
         # L5: Human approval gate (via layer coordinator)
-        if not self._run_human_approval(modified_files, output_lines):
+        if not self._run_human_approval(ctx, output_lines):
             return False, "\n".join(output_lines)
 
         # L6: Static test quality analysis (advisory)
-        self._run_test_quality_check(modified_files, output_lines)
+        self._run_test_quality_check(ctx, output_lines)
 
         # L7: LLM adversarial review (advisory)
-        self._run_adversarial_review(modified_files, output_lines)
+        self._run_adversarial_review(ctx, output_lines)
 
         return passed, "\n".join(output_lines)
 
-    def _run_prechecks(self, modified_files: Optional[List[str]], output_lines: List[str]) -> bool:
+    def _run_prechecks(self, ctx: VerificationContext, output_lines: List[str]) -> bool:
         """Run L1 and L2 pre-checks (file existence, syntax).
 
         Args:
-            modified_files: Files to check
+            ctx: VerificationContext with modified_files
             output_lines: List to append output to
 
         Returns:
             True if all checks passed, False otherwise
         """
-        if not modified_files:
+        if not ctx.modified_files:
             return True
 
         # L1: File existence
         passed, error = self.coordinator.execute_layer_level_with_output(
-            1, "FILE EXISTENCE CHECK", output_lines, files=modified_files
+            1, "FILE EXISTENCE CHECK", output_lines, context=ctx
         )
         if not passed:
             if error:
@@ -234,7 +256,7 @@ class VerificationRunner:
 
         # L2: Syntax check
         passed, error = self.coordinator.execute_layer_level_with_output(
-            2, "SYNTAX CHECK", output_lines, files=modified_files
+            2, "SYNTAX CHECK", output_lines, context=ctx
         )
         if not passed:
             if error:
@@ -257,27 +279,19 @@ class VerificationRunner:
 
     def _run_postchecks(
         self,
-        pytest_output: str,
-        modified_files: Optional[List[str]],
+        ctx: VerificationContext,
         output_lines: List[str]
     ) -> bool:
         """Run L3 post-test validation checks.
 
         Args:
-            pytest_output: Output from pytest
-            modified_files: Files that were modified
+            ctx: VerificationContext with pytest_output, test_count, changed_files
             output_lines: List to append output to
 
         Returns:
             True if all checks passed, False otherwise
         """
-        test_count = parse_test_count(pytest_output)
-        passed, results = self.coordinator.run_layers(
-            3,
-            pytest_output=pytest_output,
-            test_count=test_count,
-            changed_files=modified_files
-        )
+        passed, results = self.coordinator.run_layers(3, context=ctx)
 
         for result in results:
             if not result.passed:
@@ -293,29 +307,26 @@ class VerificationRunner:
 
     def _track_performance(
         self,
-        test_duration: float,
-        pytest_output: str,
+        ctx: VerificationContext,
         output_lines: List[str]
     ) -> None:
         """Track L4 performance metrics.
 
         Args:
-            test_duration: Duration of test execution
-            pytest_output: Output from pytest
+            ctx: VerificationContext with test_duration, pytest_output, test_count
             output_lines: List to append output to
         """
-        test_count = parse_test_count(pytest_output)
-        tests_passed, tests_failed = parse_pytest_results(pytest_output)
+        tests_passed, tests_failed = parse_pytest_results(ctx.pytest_output)
 
         self.performance_tracker.record_metrics(
-            duration=test_duration,
-            test_count=test_count,
+            duration=ctx.test_duration,
+            test_count=ctx.test_count,
             tests_passed=tests_passed,
             tests_failed=tests_failed
         )
 
         is_regression, perf_msg = self.performance_tracker.detect_regression(
-            test_duration,
+            ctx.test_duration,
             threshold_percent=20.0
         )
 
@@ -332,7 +343,7 @@ class VerificationRunner:
     
     def _run_regression_check(
         self,
-        test_duration: float,
+        ctx: VerificationContext,
         output_lines: List[str]
     ) -> None:
         """Run L4 regression detection via coordinator (advisory only).
@@ -341,15 +352,13 @@ class VerificationRunner:
         the pipeline. Use strict_mode in config to make it blocking.
 
         Args:
-            test_duration: Duration of test execution
+            ctx: VerificationContext with test_duration
             output_lines: List to append output to
         """
         if 41 not in self.coordinator.layers:
             return
 
-        _, results = self.coordinator.run_layers(
-            41, test_duration=test_duration
-        )
+        _, results = self.coordinator.run_layers(41, context=ctx)
 
         for result in results:
             prefix = "✓" if result.passed else "⚠"
@@ -360,13 +369,13 @@ class VerificationRunner:
 
     def _run_human_approval(
         self,
-        modified_files: Optional[List[str]],
+        ctx: VerificationContext,
         output_lines: List[str]
     ) -> bool:
         """Run L5 human approval via coordinator.
 
         Args:
-            modified_files: Files that were modified
+            ctx: VerificationContext with modified_files
             output_lines: List to append output to
 
         Returns:
@@ -375,9 +384,7 @@ class VerificationRunner:
         if 50 not in self.coordinator.layers:
             return True
 
-        passed, results = self.coordinator.run_layers(
-            50, modified_files=modified_files
-        )
+        passed, results = self.coordinator.run_layers(50, context=ctx)
 
         for result in results:
             prefix = "✓" if result.passed else "✗"
@@ -387,30 +394,19 @@ class VerificationRunner:
 
     def _run_test_quality_check(
         self,
-        modified_files: Optional[List[str]],
+        ctx: VerificationContext,
         output_lines: List[str]
     ) -> None:
         """Run L6 static test quality analysis (advisory only).
 
         Args:
-            modified_files: Files that were modified
+            ctx: VerificationContext with test_files
             output_lines: List to append output to
         """
         if 60 not in self.coordinator.layers:
             return
 
-        # Filter to test files only
-        test_files = None
-        if modified_files:
-            test_files = [
-                f for f in modified_files
-                if f.endswith(".py") and (
-                    f.split("/")[-1].startswith("test_") or
-                    f.endswith("_test.py")
-                )
-            ]
-
-        _, results = self.coordinator.run_layers(60, test_files=test_files)
+        _, results = self.coordinator.run_layers(60, context=ctx)
 
         for result in results:
             prefix = "✓" if not result.error_details else "⚠"
@@ -421,30 +417,19 @@ class VerificationRunner:
 
     def _run_adversarial_review(
         self,
-        modified_files: Optional[List[str]],
+        ctx: VerificationContext,
         output_lines: List[str]
     ) -> None:
         """Run L7 LLM adversarial review (advisory only).
 
         Args:
-            modified_files: Files that were modified
+            ctx: VerificationContext with test_files
             output_lines: List to append output to
         """
         if 70 not in self.coordinator.layers:
             return
 
-        # Filter to test files only
-        test_files = None
-        if modified_files:
-            test_files = [
-                f for f in modified_files
-                if f.endswith(".py") and (
-                    f.split("/")[-1].startswith("test_") or
-                    f.endswith("_test.py")
-                )
-            ]
-
-        _, results = self.coordinator.run_layers(70, test_files=test_files)
+        _, results = self.coordinator.run_layers(70, context=ctx)
 
         for result in results:
             prefix = "✓" if not result.error_details else "⚠"

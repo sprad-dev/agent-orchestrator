@@ -4,7 +4,7 @@ Wraps PerformanceTracker into a proper Layer that detects performance
 regressions by comparing current test duration against historical baselines.
 """
 
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 from src.verification.performance_metrics import PerformanceTracker
 
 
@@ -32,15 +32,18 @@ class RegressionDetectionLayer(Layer):
         # Runner handles output formatting with "L4" label
         return 41
 
-    def run(self, test_duration: float = 0.0, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, test_duration: float = 0.0, **kwargs) -> LayerResult:
         """Check for performance regression.
 
         Args:
-            test_duration: Duration of current test run in seconds
+            context: Optional VerificationContext (test_duration read from context)
+            test_duration: Duration of current test run in seconds (overrides context)
 
         Returns:
             LayerResult indicating whether regression was detected
         """
+        if test_duration <= 0 and context is not None and context.test_duration:
+            test_duration = context.test_duration
         if test_duration <= 0:
             return LayerResult(
                 passed=True,

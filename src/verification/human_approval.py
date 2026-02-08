@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 class HumanApprovalLayer(Layer):
@@ -37,15 +37,18 @@ class HumanApprovalLayer(Layer):
         # Runner handles output formatting with "L5" label
         return 50
 
-    def run(self, modified_files: Optional[List[str]] = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, modified_files: Optional[List[str]] = None, **kwargs) -> LayerResult:
         """Prompt for human approval.
 
         Args:
-            modified_files: List of files that were modified
+            context: Optional VerificationContext (modified_files read from context)
+            modified_files: List of files that were modified (overrides context)
 
         Returns:
             LayerResult with approval decision
         """
+        if modified_files is None and context is not None:
+            modified_files = context.modified_files
         if self.auto_approve:
             self._log_decision(approved=True, reason="auto-approve", files=modified_files)
             return LayerResult(passed=True, message="Human approval: auto-approved")

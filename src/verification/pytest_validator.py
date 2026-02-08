@@ -6,7 +6,7 @@ Prevents false positives from empty test suites or collection errors.
 
 import re
 from typing import Tuple
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 class PytestValidatorLayer(Layer):
@@ -26,16 +26,19 @@ class PytestValidatorLayer(Layer):
         """Layer level (L3)."""
         return 3
     
-    def run(self, pytest_output: str = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, pytest_output: str = None, **kwargs) -> LayerResult:
         """Validate that pytest ran tests.
 
         Args:
-            pytest_output: Pytest output string
+            context: Optional VerificationContext (pytest_output read from context)
+            pytest_output: Pytest output string (overrides context)
             **kwargs: Ignored (for compatibility)
 
         Returns:
             LayerResult with validation status
         """
+        if pytest_output is None and context is not None:
+            pytest_output = context.pytest_output
         if not pytest_output:
             return LayerResult(
                 passed=False,

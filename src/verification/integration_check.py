@@ -13,7 +13,7 @@ from docs/tier0-backpressure-deep-dive.md
 import os
 import re
 from typing import Optional, List
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 from src.templates.completion_manifest import parse_completion_manifest
 from src.shell import run_shell
 
@@ -46,16 +46,19 @@ class IntegrationCheckLayer(Layer):
         """Layer level (L4 - runs after tests pass)."""
         return 4
 
-    def run(self, manifest_text: Optional[str] = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, manifest_text: Optional[str] = None, **kwargs) -> LayerResult:
         """Execute integration verification.
 
         Args:
-            manifest_text: Completion manifest text from agent output
+            context: Optional VerificationContext (manifest_text read from context)
+            manifest_text: Completion manifest text from agent output (overrides context)
             **kwargs: Additional parameters (ignored)
 
         Returns:
             LayerResult with pass/fail status
         """
+        if manifest_text is None and context is not None:
+            manifest_text = context.manifest_text
         # If no manifest provided, try to extract from git log
         if not manifest_text:
             manifest_text = self._extract_manifest_from_commits()

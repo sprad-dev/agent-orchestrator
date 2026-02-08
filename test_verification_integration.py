@@ -33,7 +33,7 @@ def test_subtraction():
             
             # Create a runner that runs pytest on our test file
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -53,7 +53,7 @@ def test_subtraction():
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd="pytest",
+                verify_cmd="python -m pytest",
                 baseline_path=str(baseline_path)
             )
             
@@ -86,7 +86,7 @@ def test_subtraction():
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {bad_file}",
+                verify_cmd=f"python -m pytest {bad_file}",
                 baseline_path=str(baseline_path)
             )
             
@@ -113,7 +113,7 @@ def test_subtraction():
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {tmpdir} -v",
+                verify_cmd=f"python -m pytest {tmpdir} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -143,7 +143,7 @@ def test_5(): assert True
 """)
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -185,7 +185,7 @@ def test_5(): assert True
 """)
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -312,7 +312,7 @@ class TestEdgeCases:
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -336,7 +336,7 @@ class TestEdgeCases:
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -362,7 +362,7 @@ class TestEdgeCases:
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {py_file} -v",
+                verify_cmd=f"python -m pytest {py_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -390,7 +390,7 @@ def test_2(): assert True
 """)
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -429,7 +429,7 @@ def test_5(): assert True
             baseline_path.write_text("not valid json {[")
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -451,7 +451,7 @@ class TestFailureModes:
     
     def test_pytest_collection_failure(self):
         """Pytest collection errors should fail validation."""
-        runner = VerificationRunner(verify_cmd="pytest /nonexistent/directory")
+        runner = VerificationRunner(verify_cmd="python -m pytest /nonexistent/directory")
         
         passed, output = runner.run(modified_files=None)
         
@@ -513,7 +513,7 @@ class TestFailureModes:
             
             try:
                 runner = VerificationRunner(
-                    verify_cmd=f"pytest {test_file} -v",
+                    verify_cmd=f"python -m pytest {test_file} -v",
                     baseline_path=str(baseline_path)
                 )
                 
@@ -542,7 +542,7 @@ def test_two(): assert True
             
             # Use pytest with custom args
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v --tb=short",
+                verify_cmd=f"python -m pytest {test_file} -v --tb=short",
                 baseline_path=str(baseline_path)
             )
             
@@ -568,7 +568,7 @@ def test_fast(): assert True
             
             # Run only non-slow tests
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v -m 'not slow'",
+                verify_cmd=f"python -m pytest {test_file} -v -m 'not slow'",
                 baseline_path=str(baseline_path)
             )
             
@@ -589,7 +589,7 @@ class TestLayerInteraction:
             bad_file = Path(tmpdir) / "bad.py"
             bad_file.write_text("def broken(\n")
             
-            runner = VerificationRunner(verify_cmd=f"pytest {bad_file}")
+            runner = VerificationRunner(verify_cmd=f"python -m pytest {bad_file}")
             
             passed, output = runner.run(modified_files=[str(bad_file)])
             
@@ -609,7 +609,7 @@ class TestLayerInteraction:
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -635,7 +635,7 @@ def test_pass(): assert True
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -670,7 +670,7 @@ def test_feature_c(): assert True
             assert not baseline_path.exists()
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -696,7 +696,7 @@ def test_feature_c(): assert True
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {tmpdir} -v",
+                verify_cmd=f"python -m pytest {tmpdir} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -733,7 +733,7 @@ def test_feature():
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -772,7 +772,7 @@ def test_xss(): assert True
             baseline_path = Path(tmpdir) / ".test_baseline"
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             
@@ -809,7 +809,7 @@ class TestBaselineManagement:
             custom_baseline.parent.mkdir(parents=True, exist_ok=True)
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(custom_baseline)
             )
             
@@ -827,7 +827,7 @@ class TestBaselineManagement:
             test_file.write_text("def test_x(): assert True\n")
             
             runner = VerificationRunner(
-                verify_cmd=f"pytest {test_file} -v",
+                verify_cmd=f"python -m pytest {test_file} -v",
                 baseline_path=str(baseline_path)
             )
             

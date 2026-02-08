@@ -5,8 +5,8 @@ Enables parallel development by decoupling layers from runner.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Callable, List, Optional
 
 
 @dataclass
@@ -20,6 +20,30 @@ class LayerResult:
         """Initialize error_details as empty list if None."""
         if self.error_details is None:
             self.error_details = []
+
+
+@dataclass
+class VerificationContext:
+    """Shared state flowing through verification pipeline.
+
+    Accumulated as layers execute. Layers read from context instead of
+    receiving loose kwargs — makes dependencies explicit and enables caching.
+    """
+    modified_files: Optional[List[str]] = None
+    pytest_output: Optional[str] = None
+    test_count: Optional[int] = None
+    test_duration: Optional[float] = None
+    changed_files: Optional[List[str]] = None
+    manifest_text: Optional[str] = None
+    test_files: Optional[List[str]] = None
+
+    _cache: dict = field(default_factory=dict, repr=False)
+
+    def get_cached(self, key: str, compute_fn: Callable):
+        """Get cached value or compute and cache it."""
+        if key not in self._cache:
+            self._cache[key] = compute_fn()
+        return self._cache[key]
 
 
 class Layer(ABC):
@@ -46,12 +70,13 @@ class Layer(ABC):
         pass
     
     @abstractmethod
-    def run(self, **kwargs) -> LayerResult:
+    def run(self, *, context: Optional['VerificationContext'] = None, **kwargs) -> LayerResult:
         """Execute the verification layer.
-        
+
         Args:
-            **kwargs: Layer-specific parameters (e.g., files, config)
-            
+            context: Optional VerificationContext with shared pipeline state
+            **kwargs: Layer-specific parameters (backwards compat)
+
         Returns:
             LayerResult with pass/fail status and message
         """

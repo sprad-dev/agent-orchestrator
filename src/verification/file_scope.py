@@ -7,7 +7,7 @@ Blocks changes to critical system files, config, or out-of-scope areas.
 from pathlib import Path
 from typing import List, Optional, Set
 import fnmatch
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 from src.shell import run_shell
 
 
@@ -35,10 +35,11 @@ class FileScopeLayer(Layer):
         """Layer level (L2)."""
         return 2
 
-    def run(self, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, **kwargs) -> LayerResult:
         """Verify changed files are within allowed scope.
 
         Args:
+            context: Optional VerificationContext with shared pipeline state
             **kwargs: Ignored (for compatibility)
 
         Returns:

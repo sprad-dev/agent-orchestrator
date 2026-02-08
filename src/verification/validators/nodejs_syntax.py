@@ -7,7 +7,7 @@ Provides immediate feedback on parse errors and type issues.
 import subprocess
 from pathlib import Path
 from typing import List
-from src.verification.layer import Layer, LayerResult
+from src.verification.layer import Layer, LayerResult, VerificationContext
 
 
 class NodeJSSyntaxLayer(Layer):
@@ -32,16 +32,19 @@ class NodeJSSyntaxLayer(Layer):
         """Layer level (L2)."""
         return 2
 
-    def run(self, files: List[str] = None, **kwargs) -> LayerResult:
+    def run(self, *, context: 'VerificationContext' = None, files: List[str] = None, **kwargs) -> LayerResult:
         """Validate JavaScript/TypeScript syntax.
 
         Args:
+            context: Optional VerificationContext with shared pipeline state
             files: List of file paths to check
             **kwargs: Ignored (for compatibility)
 
         Returns:
             LayerResult with validation status
         """
+        if files is None and context is not None:
+            files = context.modified_files
         if not files:
             return LayerResult(
                 passed=True,
