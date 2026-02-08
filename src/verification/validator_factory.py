@@ -49,6 +49,8 @@ class ValidatorFactory:
             return SyntaxCheckLayer()
         elif self.language in [Language.JAVASCRIPT, Language.TYPESCRIPT]:
             return NodeJSSyntaxLayer(use_typescript=(self.language == Language.TYPESCRIPT))
+        elif self.language in [Language.CSHARP, Language.DOTNET]:
+            return DotNetSyntaxLayer()
         elif self.language == Language.UNKNOWN:
             # Try to detect from files at runtime
             # For now, default to Python
@@ -70,6 +72,8 @@ class ValidatorFactory:
         elif self.language in [Language.JAVASCRIPT, Language.TYPESCRIPT]:
             cmd = test_command or "npm test"
             return NodeJSTestValidatorLayer(test_command=cmd)
+        elif self.language in [Language.CSHARP, Language.DOTNET]:
+            return DotNetTestValidatorLayer()
         elif self.language == Language.UNKNOWN:
             # Default to Python
             return PytestValidatorLayer()
@@ -94,6 +98,8 @@ class ValidatorFactory:
         elif self.language in [Language.JAVASCRIPT, Language.TYPESCRIPT]:
             cmd = test_command or "npm test"
             return NodeJSCoverageLayer(min_coverage=min_coverage, test_command=cmd)
+        elif self.language in [Language.CSHARP, Language.DOTNET]:
+            return DotNetCoverageLayer(min_coverage=min_coverage)
         elif self.language == Language.UNKNOWN:
             # Default to Python
             return CoverageCheckLayer(min_coverage=min_coverage, test_command=test_command or "pytest")
@@ -170,5 +176,7 @@ class ValidatorFactory:
             return "pytest"
         elif self.language in [Language.JAVASCRIPT, Language.TYPESCRIPT]:
             return "npm test"
+        elif self.language in [Language.CSHARP, Language.DOTNET]:
+            return "dotnet test"
         else:
             return "pytest"  # Fallback

@@ -14,6 +14,8 @@ class Language(Enum):
     PYTHON = "python"
     JAVASCRIPT = "javascript"
     TYPESCRIPT = "typescript"
+    CSHARP = "csharp"
+    DOTNET = "dotnet"  # Alias for csharp
     GO = "go"
     RUST = "rust"
     UNKNOWN = "unknown"
@@ -26,6 +28,9 @@ DETECTION_PATTERNS = [
 
     # JavaScript/Node.js
     (Language.JAVASCRIPT, ["package.json", "package-lock.json", "yarn.lock"]),
+
+    # .NET/C#
+    (Language.CSHARP, ["*.csproj", "*.sln"]),
 
     # Python
     (Language.PYTHON, ["setup.py", "pyproject.toml", "requirements.txt", "Pipfile"]),
@@ -58,7 +63,12 @@ def detect_language(project_path: str = ".") -> Language:
     # Check each pattern in priority order
     for language, patterns in DETECTION_PATTERNS:
         for pattern in patterns:
-            if (root / pattern).exists():
+            # Handle glob patterns (e.g., "*.csproj")
+            if '*' in pattern or '?' in pattern:
+                if list(root.glob(pattern)):
+                    return language
+            # Handle exact file names
+            elif (root / pattern).exists():
                 return language
 
     # Fallback: check file extensions
@@ -81,6 +91,7 @@ def _detect_from_extensions(root: Path) -> Language:
         ".py": Language.PYTHON,
         ".js": Language.JAVASCRIPT,
         ".ts": Language.TYPESCRIPT,
+        ".cs": Language.CSHARP,
         ".go": Language.GO,
         ".rs": Language.RUST,
     }
@@ -123,6 +134,7 @@ def detect_languages_in_files(files: List[str]) -> List[Language]:
         ".jsx": Language.JAVASCRIPT,
         ".ts": Language.TYPESCRIPT,
         ".tsx": Language.TYPESCRIPT,
+        ".cs": Language.CSHARP,
         ".go": Language.GO,
         ".rs": Language.RUST,
     }
