@@ -13,7 +13,7 @@ This is the main entry point that delegates to modular components:
 import argparse
 import sys
 
-from src.models import EscalationExecutor, TwoPhaseExecutor
+from src.models import EscalationExecutor, TwoPhaseExecutor, ThreePhaseExecutor
 from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content
 from src.context import parse_context_files, get_default_context_files, build_static_context
 
@@ -28,7 +28,7 @@ class RalphLoop:
     """Main orchestrator that delegates to execution strategies."""
 
     def __init__(self, agent_cmd_template, verify_cmd, max_retries,
-                 models=None, test_model=None, impl_model=None,
+                 models=None, test_model=None, impl_model=None, adversary_model=None,
                  max_cost_per_run=None, max_tokens_per_run=None):
         self.agent_cmd_template = agent_cmd_template
         self.verify_cmd = verify_cmd
@@ -36,12 +36,26 @@ class RalphLoop:
         self.models = models if models else DEFAULT_MODELS
         self.test_model = test_model
         self.impl_model = impl_model
+        self.adversary_model = adversary_model
         self.max_cost_per_run = max_cost_per_run
         self.max_tokens_per_run = max_tokens_per_run
-        self.two_phase_mode = test_model is not None and impl_model is not None
+
+        # Determine execution mode
+        self.three_phase_mode = (test_model is not None and
+                                 impl_model is not None and
+                                 adversary_model is not None)
+        self.two_phase_mode = (test_model is not None and
+                               impl_model is not None and
+                               adversary_model is None)
 
         # Initialize the appropriate executor
-        if self.two_phase_mode:
+        if self.three_phase_mode:
+            self.executor = ThreePhaseExecutor(
+                agent_cmd_template, verify_cmd, test_model, impl_model, adversary_model,
+                max_cost_per_run=max_cost_per_run,
+                max_tokens_per_run=max_tokens_per_run
+            )
+        elif self.two_phase_mode:
             self.executor = TwoPhaseExecutor(
                 agent_cmd_template, verify_cmd, test_model, impl_model,
                 max_cost_per_run=max_cost_per_run,
@@ -127,6 +141,8 @@ def main():
                         help="Model for test generation (enables two-phase mode)")
     parser.add_argument("--impl-model",
                         help="Model for implementation (enables two-phase mode)")
+    parser.add_argument("--adversary-model",
+                        help="Model for adversarial review (enables three-phase mode, requires --test-model and --impl-model)")
     parser.add_argument("--max-cost", type=float,
                         help="Maximum cost per run in USD (e.g., 1.00)")
     parser.add_argument("--max-tokens", type=int,
@@ -159,6 +175,7 @@ def main():
         models=models,
         test_model=args.test_model,
         impl_model=args.impl_model,
+        adversary_model=args.adversary_model,
         max_cost_per_run=args.max_cost,
         max_tokens_per_run=args.max_tokens
     )
