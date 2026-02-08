@@ -11,7 +11,10 @@ This is the main entry point that delegates to modular components:
 """
 
 import argparse
+import os
 import sys
+import warnings
+import yaml
 from pathlib import Path
 
 # Add supervisor.py's parent directory to sys.path so imports work
@@ -29,6 +32,30 @@ DEFAULT_AGENT = "claude -p --dangerously-skip-permissions --model {model} {promp
 DEFAULT_VERIFIER = "pytest"
 MAX_RETRIES = 3
 DEFAULT_MODELS = ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"]
+
+
+def load_config(config_path: str = None) -> dict:
+    """Load agent configuration from YAML file.
+    
+    Args:
+        config_path: Path to config file. Defaults to agent.yaml in cwd.
+    
+    Returns:
+        Parsed config as dict, or empty dict if not found/invalid.
+    """
+    if config_path is None:
+        config_path = os.path.join(os.getcwd(), "agent.yaml")
+    
+    if not os.path.exists(config_path):
+        return {}
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            return config if config is not None else {}
+    except yaml.YAMLError as e:
+        warnings.warn(f"Failed to parse YAML config at {config_path}: {e}")
+        return {}
 
 
 class RalphLoop:
