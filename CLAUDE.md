@@ -3,7 +3,9 @@
 ## Vision
 A CLI supervisor for AI coding agents, built to advance through Yegge's 8-stage developer-agent evolution model. Currently at Stage 5-6 (CLI, single/multi-agent) — targeting Stage 7-8 (hand-managed fleet, custom orchestrator).
 
-Core principle: **single-agent reliability before multi-agent scale.** If your loop leaks incomplete work, more agents multiply the leak. Get one agent producing verified, integrated, tested code before adding parallelism.
+Core principles:
+- **Single-agent reliability before multi-agent scale.** If your loop leaks incomplete work, more agents multiply the leak. Get one agent producing verified, integrated, tested code before adding parallelism.
+- **Never accept failing tests.** All tests must pass before committing, even if failures are pre-existing. Fix or skip broken tests first — accepting failures normalizes technical debt.
 
 Inspired by:
 - Steve Yegge's Gas Town — multi-agent orchestration, trust escalation, the 8-stage model
