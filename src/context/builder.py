@@ -11,6 +11,7 @@ import os
 import json
 import re
 from pathlib import Path
+from src.templates import ANTI_PATTERN_SUFFIX, COMPLETION_MANIFEST_TEMPLATE
 
 
 def parse_context_files(task):
@@ -113,37 +114,33 @@ def build_context(files):
 
 def build_static_context(context_files):
     """Build static context block optimized for prompt caching.
-    
+
     CACHING STRATEGY:
     Claude's automatic prompt caching caches long prefixes. By placing
     static content (repo files, docs) at the beginning, subsequent
     retries can reuse the cached context at ~90% cost reduction.
-    
+
     This method returns the static portion that should appear first
     in prompts to maximize cache hit rates.
-    
+
+    Quality gates and completion manifest are ALWAYS included, even
+    without context files, as they are core Tier 0 backpressure mechanisms.
+
     Returns: tuple of (static_context_str, context_size_bytes)
     """
-    if not context_files:
-        return "", 0
-    
     static_parts = []
-    
+
     # Repository structure/context files - these are stable across retries
-    file_context = build_context(context_files)
-    if file_context:
-        static_parts.append(file_context)
-    
-    # General coding guidelines (static)
-    static_parts.append("""
-=== GENERAL GUIDELINES ===
-- Write clean, maintainable code
-- Follow existing code style and conventions
-- Add appropriate error handling
-- Write clear comments where needed
-- Ensure all changes are production-ready
-=== END GUIDELINES ===
-""")
-    
+    if context_files:
+        file_context = build_context(context_files)
+        if file_context:
+            static_parts.append(file_context)
+
+    # Quality gates and completion requirements (Tier 0 backpressure)
+    # ALWAYS include these, even without context files
+    static_parts.append(ANTI_PATTERN_SUFFIX)
+    static_parts.append("\n")
+    static_parts.append(COMPLETION_MANIFEST_TEMPLATE)
+
     static_content = ''.join(static_parts)
     return static_content, len(static_content.encode('utf-8'))
