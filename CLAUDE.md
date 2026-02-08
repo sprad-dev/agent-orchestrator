@@ -30,5 +30,20 @@ Each tier is blocked by the previous. Don't skip ahead.
 ## Guinea Pig
 `/home/wspradley/src/investing/my-investing` — a LangGraph + Claude investment analysis agent with real tests and complexity. Use it to validate orchestrator features against a real project.
 
-## Issue Tracking
-This project uses `bd` (beads). Run `bd ready` to find work. See AGENTS.md for workflow.
+## Workflow
+This project uses `bd` (beads) for issue tracking. Run `bd ready` to find work.
+
+**Session Completion Protocol:**
+Work is NOT complete until changes are pushed. Before ending any session:
+1. Create issues for remaining work (`bd create`)
+2. Run quality gates if code changed (tests, linters)
+3. Close finished issues (`bd close <id>`)
+4. **Push to remote** (MANDATORY):
+   ```bash
+   git pull --rebase
+   bd sync
+   git push
+   git status  # Must show "up to date with origin"
+   ```
+
+Never stop before pushing. If push fails, resolve and retry until it succeeds.
