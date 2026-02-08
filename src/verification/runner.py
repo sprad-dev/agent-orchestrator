@@ -14,6 +14,8 @@ from src.verification.config import VerificationConfig, load_config
 from src.verification.performance_metrics import PerformanceTracker, parse_pytest_results
 from src.verification.regression_detection import RegressionDetectionLayer
 from src.verification.human_approval import HumanApprovalLayer
+from src.verification.test_quality import TestQualityLayer
+from src.verification.adversarial_review import AdversarialReviewLayer
 
 
 class VerificationRunner:
@@ -70,6 +72,16 @@ class VerificationRunner:
                 auto_approve=config.human_approval_auto_approve
             )
             self.coordinator.register_layer(approval_layer)
+
+        # Register L6 test quality layer
+        if config.enable_test_quality_check:
+            self.coordinator.register_layer(TestQualityLayer())
+
+        # Register L7 adversarial review layer
+        if config.enable_adversarial_review:
+            self.coordinator.register_layer(AdversarialReviewLayer(
+                model=config.adversarial_review_model
+            ))
 
         # Backwards compatibility: expose enable flags
         self._enable_file_exists_check = config.enable_file_exists_check
@@ -188,6 +200,12 @@ class VerificationRunner:
         # L5: Human approval gate (via layer coordinator)
         if not self._run_human_approval(modified_files, output_lines):
             return False, "\n".join(output_lines)
+
+        # L6: Static test quality analysis (advisory)
+        self._run_test_quality_check(modified_files, output_lines)
+
+        # L7: LLM adversarial review (advisory)
+        self._run_adversarial_review(modified_files, output_lines)
 
         return passed, "\n".join(output_lines)
 
@@ -366,4 +384,72 @@ class VerificationRunner:
             output_lines.append(f"{prefix} L5 {result.message}")
 
         return passed
+
+    def _run_test_quality_check(
+        self,
+        modified_files: Optional[List[str]],
+        output_lines: List[str]
+    ) -> None:
+        """Run L6 static test quality analysis (advisory only).
+
+        Args:
+            modified_files: Files that were modified
+            output_lines: List to append output to
+        """
+        if 60 not in self.coordinator.layers:
+            return
+
+        # Filter to test files only
+        test_files = None
+        if modified_files:
+            test_files = [
+                f for f in modified_files
+                if f.endswith(".py") and (
+                    f.split("/")[-1].startswith("test_") or
+                    f.endswith("_test.py")
+                )
+            ]
+
+        _, results = self.coordinator.run_layers(60, test_files=test_files)
+
+        for result in results:
+            prefix = "✓" if not result.error_details else "⚠"
+            output_lines.append(f"{prefix} L6 {result.message}")
+            if result.error_details:
+                for detail in result.error_details:
+                    output_lines.append(f"  {detail}")
+
+    def _run_adversarial_review(
+        self,
+        modified_files: Optional[List[str]],
+        output_lines: List[str]
+    ) -> None:
+        """Run L7 LLM adversarial review (advisory only).
+
+        Args:
+            modified_files: Files that were modified
+            output_lines: List to append output to
+        """
+        if 70 not in self.coordinator.layers:
+            return
+
+        # Filter to test files only
+        test_files = None
+        if modified_files:
+            test_files = [
+                f for f in modified_files
+                if f.endswith(".py") and (
+                    f.split("/")[-1].startswith("test_") or
+                    f.endswith("_test.py")
+                )
+            ]
+
+        _, results = self.coordinator.run_layers(70, test_files=test_files)
+
+        for result in results:
+            prefix = "✓" if not result.error_details else "⚠"
+            output_lines.append(f"{prefix} L7 {result.message}")
+            if result.error_details:
+                for detail in result.error_details:
+                    output_lines.append(f"  {detail}")
 

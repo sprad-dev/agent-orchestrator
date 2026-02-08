@@ -199,7 +199,10 @@ class TestRunSelfCheck:
 
             run_self_check(verify_cmd="nose", diff_ref="HEAD~1", project_path=".")
 
-        mock_runner_class.assert_called_once_with(verify_cmd="nose")
+        # Verify verify_cmd was passed; config is also passed now
+        call_kwargs = mock_runner_class.call_args[1]
+        assert call_kwargs["verify_cmd"] == "nose"
+        assert call_kwargs["config"].test_command == "nose"
 
     def test_run_self_check_custom_diff_ref(self):
         """Test that custom diff_ref is passed to get_changed_files."""

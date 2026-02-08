@@ -151,6 +151,8 @@ def main():
                         help="Run verification pipeline against own codebase (dogfood mode)")
     parser.add_argument("--self-check-ref", default="HEAD~1",
                         help="Git ref to diff against for --self-check (default: HEAD~1)")
+    parser.add_argument("--adversarial", action="store_true",
+                        help="Enable L7 LLM adversarial review during --self-check")
     parser.add_argument("--stats", action="store_true",
                         help="Show execution statistics and exit")
     parser.add_argument("--stats-days", type=int,
@@ -163,7 +165,8 @@ def main():
         from src.verification.self_check import run_self_check
         success = run_self_check(
             verify_cmd=args.verify,
-            diff_ref=args.self_check_ref
+            diff_ref=args.self_check_ref,
+            enable_adversarial_review=args.adversarial
         )
         sys.exit(0 if success else 1)
 

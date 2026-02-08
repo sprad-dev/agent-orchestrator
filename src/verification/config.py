@@ -63,6 +63,11 @@ class VerificationConfig:
     enable_regression_detection: bool = True
     regression_threshold_percent: float = 20.0
 
+    # Test quality analysis (L6 static, L7 LLM)
+    enable_test_quality_check: bool = True
+    enable_adversarial_review: bool = False
+    adversarial_review_model: str = "sonnet"
+
     # Additional settings
     strict_mode: bool = False
     fail_fast: bool = False
@@ -115,6 +120,9 @@ class VerificationConfig:
             'human_approval_auto_approve',
             'enable_regression_detection',
             'regression_threshold_percent',
+            'enable_test_quality_check',
+            'enable_adversarial_review',
+            'adversarial_review_model',
             'strict_mode',
             'fail_fast',
             'verbose',
@@ -206,6 +214,9 @@ class VerificationConfig:
             'human_approval_auto_approve': self.human_approval_auto_approve,
             'enable_regression_detection': self.enable_regression_detection,
             'regression_threshold_percent': self.regression_threshold_percent,
+            'enable_test_quality_check': self.enable_test_quality_check,
+            'enable_adversarial_review': self.enable_adversarial_review,
+            'adversarial_review_model': self.adversarial_review_model,
             'test_command': self.test_command,
             'test_timeout_seconds': self.test_timeout_seconds,
             'baseline_path': self.baseline_path,

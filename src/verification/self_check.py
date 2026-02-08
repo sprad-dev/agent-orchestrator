@@ -10,6 +10,7 @@ import sys
 from typing import List, Optional
 
 from src.verification.runner import VerificationRunner
+from src.verification.config import VerificationConfig
 from src.verification.language_detector import detect_language, Language
 
 
@@ -36,7 +37,8 @@ def get_changed_files(diff_ref: str = "HEAD~1") -> List[str]:
 def run_self_check(
     verify_cmd: str = "pytest",
     diff_ref: str = "HEAD~1",
-    project_path: str = "."
+    project_path: str = ".",
+    enable_adversarial_review: bool = False
 ) -> bool:
     """Run full verification pipeline against own codebase.
 
@@ -44,6 +46,7 @@ def run_self_check(
         verify_cmd: Test command to run
         diff_ref: Git ref to diff against for modified files
         project_path: Project root path
+        enable_adversarial_review: If True, enable L7 LLM adversarial review
 
     Returns:
         True if all checks pass, False otherwise
@@ -69,8 +72,15 @@ def run_self_check(
 
     print()
 
+    # Build config with L6 always on, L7 opt-in
+    config = VerificationConfig(
+        test_command=verify_cmd,
+        enable_test_quality_check=True,
+        enable_adversarial_review=enable_adversarial_review,
+    )
+
     # Run verification pipeline
-    runner = VerificationRunner(verify_cmd=verify_cmd)
+    runner = VerificationRunner(verify_cmd=verify_cmd, config=config)
     passed, output = runner.run(modified_files=changed if changed else None)
 
     print(output)
