@@ -32,7 +32,7 @@ class TestCostMetrics(unittest.TestCase):
             total_tokens=1500,
             estimated_cost_usd=0.0065,
             duration_seconds=10.5,
-            success=True,
+            outcome="success",
             retry_count=0
         )
 
@@ -40,7 +40,7 @@ class TestCostMetrics(unittest.TestCase):
         self.assertEqual(metrics.input_tokens, 1000)
         self.assertEqual(metrics.output_tokens, 500)
         self.assertEqual(metrics.total_tokens, 1500)
-        self.assertTrue(metrics.success)
+        self.assertEqual(metrics.outcome, "success")
 
     def test_cost_metrics_to_dict(self):
         """Test converting CostMetrics to dictionary."""
@@ -54,7 +54,7 @@ class TestCostMetrics(unittest.TestCase):
             total_tokens=3000,
             estimated_cost_usd=0.021,
             duration_seconds=15.0,
-            success=True,
+            outcome="success",
             retry_count=0
         )
 
@@ -62,6 +62,7 @@ class TestCostMetrics(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertEqual(result["model"], "claude-4.5-sonnet")
         self.assertEqual(result["total_tokens"], 3000)
+        self.assertEqual(result["outcome"], "success")
 
 
 class TestAgentCostTracker(unittest.TestCase):

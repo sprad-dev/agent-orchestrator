@@ -36,7 +36,9 @@ class CostMetrics:
     total_tokens: int
     estimated_cost_usd: float
     duration_seconds: float
-    success: bool
+    outcome: str  # "success" | "partial" | "fail"
+    task_description: str = ""
+    failure_reason: Optional[str] = None  # timeout | budget | test_fail | syntax_error | integration_gap | etc.
     retry_count: int = 0
 
     def to_dict(self) -> dict:
@@ -54,14 +56,14 @@ class AgentCostTracker:
 
     def __init__(
         self,
-        metrics_path: str = ".agent_cost_metrics.json",
+        metrics_path: str = ".agent_execution_log.jsonl",
         max_cost_per_run: Optional[float] = None,
         max_tokens_per_run: Optional[int] = None
     ):
         """Initialize cost tracker.
 
         Args:
-            metrics_path: Path to JSON file for storing cost history
+            metrics_path: Path to JSONL file for storing execution history
             max_cost_per_run: Maximum allowed cost in USD per run (None = no limit)
             max_tokens_per_run: Maximum allowed tokens per run (None = no limit)
         """
@@ -74,21 +76,25 @@ class AgentCostTracker:
         self._load_history()
 
     def _load_history(self) -> None:
-        """Load cost history from JSON file."""
+        """Load execution history from JSONL file."""
         if self.metrics_path.exists():
             try:
                 with open(self.metrics_path, 'r') as f:
-                    data = json.load(f)
-                    self.history = [CostMetrics(**entry) for entry in data]
+                    self.history = []
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            entry = json.loads(line)
+                            self.history.append(CostMetrics(**entry))
             except (json.JSONDecodeError, TypeError):
                 # Corrupted or invalid file, start fresh
                 self.history = []
 
     def _save_history(self) -> None:
-        """Save cost history to JSON file."""
+        """Save execution history to JSONL file."""
         with open(self.metrics_path, 'w') as f:
-            data = [entry.to_dict() for entry in self.history]
-            json.dump(data, f, indent=2)
+            for entry in self.history:
+                f.write(json.dumps(entry.to_dict()) + '\n')
 
     def reset_run_budget(self) -> None:
         """Reset current run cost/token counters."""
@@ -133,7 +139,10 @@ class AgentCostTracker:
         input_tokens: int,
         output_tokens: int,
         duration_seconds: float,
-        success: bool,
+        success: bool = None,
+        outcome: str = None,
+        task_description: str = "",
+        failure_reason: Optional[str] = None,
         retry_count: int = 0
     ) -> CostMetrics:
         """Record metrics for an agent execution.
@@ -145,7 +154,10 @@ class AgentCostTracker:
             input_tokens: Number of input tokens
             output_tokens: Number of output tokens
             duration_seconds: Execution duration
-            success: Whether execution succeeded
+            success: DEPRECATED - use outcome instead. Whether execution succeeded (for backwards compatibility)
+            outcome: Execution outcome: "success" | "partial" | "fail"
+            task_description: Brief description of the task being executed
+            failure_reason: Reason for failure (timeout | budget | test_fail | syntax_error | integration_gap | etc.)
             retry_count: Number of retries for this execution
 
         Returns:
@@ -154,6 +166,12 @@ class AgentCostTracker:
         Raises:
             BudgetExceededException: If budget limits are exceeded
         """
+        # Backwards compatibility: if success is provided but not outcome, convert it
+        if outcome is None and success is not None:
+            outcome = "success" if success else "fail"
+        elif outcome is None:
+            outcome = "unknown"
+
         total_tokens = input_tokens + output_tokens
         cost = self.calculate_cost(model, input_tokens, output_tokens)
 
@@ -183,7 +201,9 @@ class AgentCostTracker:
             total_tokens=total_tokens,
             estimated_cost_usd=cost,
             duration_seconds=duration_seconds,
-            success=success,
+            outcome=outcome,
+            task_description=task_description,
+            failure_reason=failure_reason,
             retry_count=retry_count
         )
 
@@ -258,6 +278,154 @@ class AgentCostTracker:
             breakdown[m.model] = breakdown.get(m.model, 0.0) + m.estimated_cost_usd
 
         return breakdown
+
+    def get_success_rate(self, days: Optional[int] = None) -> Dict[str, float]:
+        """Get success rate statistics.
+
+        Args:
+            days: If specified, only count last N days
+
+        Returns:
+            Dict with success_rate, total_executions, success_count, fail_count, partial_count
+        """
+        if days is not None:
+            from datetime import timedelta
+            cutoff = datetime.now() - timedelta(days=days)
+            metrics = [
+                m for m in self.history
+                if datetime.fromisoformat(m.timestamp) > cutoff
+            ]
+        else:
+            metrics = self.history
+
+        if not metrics:
+            return {
+                "total_executions": 0,
+                "success_count": 0,
+                "fail_count": 0,
+                "partial_count": 0,
+                "success_rate": 0.0
+            }
+
+        success_count = sum(1 for m in metrics if m.outcome == "success")
+        fail_count = sum(1 for m in metrics if m.outcome == "fail")
+        partial_count = sum(1 for m in metrics if m.outcome == "partial")
+        total = len(metrics)
+
+        return {
+            "total_executions": total,
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "partial_count": partial_count,
+            "success_rate": (success_count / total * 100) if total > 0 else 0.0
+        }
+
+    def get_stats_by_model(self, days: Optional[int] = None) -> Dict[str, Dict]:
+        """Get success rate and cost breakdown by model.
+
+        Args:
+            days: If specified, only count last N days
+
+        Returns:
+            Dict of model -> {success_rate, total_executions, total_cost}
+        """
+        if days is not None:
+            from datetime import timedelta
+            cutoff = datetime.now() - timedelta(days=days)
+            metrics = [
+                m for m in self.history
+                if datetime.fromisoformat(m.timestamp) > cutoff
+            ]
+        else:
+            metrics = self.history
+
+        breakdown = {}
+        for m in metrics:
+            if m.model not in breakdown:
+                breakdown[m.model] = {
+                    "total_executions": 0,
+                    "success_count": 0,
+                    "total_cost": 0.0
+                }
+
+            breakdown[m.model]["total_executions"] += 1
+            if m.outcome == "success":
+                breakdown[m.model]["success_count"] += 1
+            breakdown[m.model]["total_cost"] += m.estimated_cost_usd
+
+        # Calculate success rates
+        for model, stats in breakdown.items():
+            total = stats["total_executions"]
+            success = stats["success_count"]
+            stats["success_rate"] = (success / total * 100) if total > 0 else 0.0
+
+        return breakdown
+
+    def get_failure_breakdown(self, days: Optional[int] = None) -> Dict[str, int]:
+        """Get breakdown of failure reasons.
+
+        Args:
+            days: If specified, only count last N days
+
+        Returns:
+            Dict of failure_reason -> count
+        """
+        if days is not None:
+            from datetime import timedelta
+            cutoff = datetime.now() - timedelta(days=days)
+            metrics = [
+                m for m in self.history
+                if datetime.fromisoformat(m.timestamp) > cutoff
+            ]
+        else:
+            metrics = self.history
+
+        breakdown = {}
+        for m in metrics:
+            if m.failure_reason:
+                breakdown[m.failure_reason] = breakdown.get(m.failure_reason, 0) + 1
+
+        return breakdown
+
+    def print_stats(self, days: Optional[int] = None) -> None:
+        """Print comprehensive execution statistics.
+
+        Args:
+            days: If specified, only show last N days (default: all time)
+        """
+        period = f"Last {days} days" if days else "All time"
+        print(f"\n=== EXECUTION STATISTICS ({period}) ===\n")
+
+        # Overall success rate
+        success_stats = self.get_success_rate(days)
+        print(f"Overall Success Rate: {success_stats['success_rate']:.1f}%")
+        print(f"  Total Executions: {success_stats['total_executions']}")
+        print(f"  Successes: {success_stats['success_count']}")
+        print(f"  Failures: {success_stats['fail_count']}")
+        print(f"  Partial: {success_stats['partial_count']}")
+
+        # Cost summary
+        total_cost = self.get_total_cost(days)
+        print(f"\nTotal Cost: ${total_cost:.4f}")
+
+        # Model breakdown
+        model_stats = self.get_stats_by_model(days)
+        if model_stats:
+            print("\n--- Performance by Model ---")
+            for model, stats in sorted(model_stats.items(), key=lambda x: x[1]['total_cost'], reverse=True):
+                print(f"\n{model}:")
+                print(f"  Success Rate: {stats['success_rate']:.1f}%")
+                print(f"  Executions: {stats['total_executions']}")
+                print(f"  Total Cost: ${stats['total_cost']:.4f}")
+
+        # Failure breakdown
+        failures = self.get_failure_breakdown(days)
+        if failures:
+            print("\n--- Failure Reasons ---")
+            for reason, count in sorted(failures.items(), key=lambda x: x[1], reverse=True):
+                print(f"  {reason}: {count}")
+
+        print()
 
 
 def parse_claude_tokens(output: str) -> Optional[Tuple[int, int]]:

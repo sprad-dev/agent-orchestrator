@@ -116,7 +116,7 @@ class RalphLoop:
 
 def main():
     parser = argparse.ArgumentParser(description="Ralph Loop Supervisor")
-    parser.add_argument("task", help="The coding task description")
+    parser.add_argument("task", nargs='?', help="The coding task description")
     parser.add_argument("--verify", default=DEFAULT_VERIFIER,
                         help="Command to verify success (default: pytest)")
     parser.add_argument("--agent", default=DEFAULT_AGENT,
@@ -131,8 +131,23 @@ def main():
                         help="Maximum cost per run in USD (e.g., 1.00)")
     parser.add_argument("--max-tokens", type=int,
                         help="Maximum tokens per run (e.g., 100000)")
+    parser.add_argument("--stats", action="store_true",
+                        help="Show execution statistics and exit")
+    parser.add_argument("--stats-days", type=int,
+                        help="Number of days to include in stats (default: all time)")
 
     args = parser.parse_args()
+
+    # Handle --stats command
+    if args.stats:
+        from src.models.cost_tracker import AgentCostTracker
+        tracker = AgentCostTracker()
+        tracker.print_stats(days=args.stats_days)
+        sys.exit(0)
+
+    # Validate task argument
+    if not args.task:
+        parser.error("task argument is required (unless using --stats)")
 
     # Parse models list if provided
     models = None
