@@ -175,6 +175,109 @@ class TestRalphLoop(unittest.TestCase):
         self.assertEqual(loop.agent_cmd, "claude -p --dangerously-skip-permissions --model {model} {prompt}")
         self.assertEqual(loop.fallback_agents, [])
 
+    def test_diagnose_initialization(self):
+        """Test initialization with diagnose flag."""
+        loop = RalphLoop(task_description="Test", diagnose=True)
+
+        self.assertTrue(loop.diagnose)
+
+    def test_diagnose_summary_with_mock_logs(self):
+        """Test print_diagnostic_summary with mock log directory."""
+        import tempfile
+        import os
+        import shutil
+        from io import StringIO
+        from contextlib import redirect_stdout
+
+        # Create temporary directory for testing
+        tmpdir = tempfile.mkdtemp()
+        original_cwd = os.getcwd()
+
+        try:
+            os.chdir(tmpdir)
+
+            # Create mock .ralph_logs structure
+            logs_dir = Path(".ralph_logs")
+
+            # Create iteration 1 logs
+            iter1_dir = logs_dir / "iteration_1"
+            iter1_dir.mkdir(parents=True)
+
+            (iter1_dir / "prompt.txt").write_text("TASK: Test task\n\nInitial iteration")
+            (iter1_dir / "agent_command.txt").write_text("Agent: Primary\nCommand: test cmd\nReturn Code: 0")
+            (iter1_dir / "verification_output.txt").write_text("Status: PASSED\nCommand: pytest")
+            (iter1_dir / "git_status_after.txt").write_text(
+                "=== Git Status (after) ===\n\n## Changed Files\ntest.py\nREADME.md\n\n## Git Status\nM test.py\n"
+            )
+            (iter1_dir / "agent_errors.txt").write_text("")
+
+            # Create iteration 2 logs
+            iter2_dir = logs_dir / "iteration_2"
+            iter2_dir.mkdir(parents=True)
+
+            (iter2_dir / "prompt.txt").write_text("RETRY - Iteration 2/5\n\nRetry with feedback")
+            (iter2_dir / "agent_command.txt").write_text("Agent: Primary\nCommand: test cmd\nReturn Code: 0")
+            (iter2_dir / "verification_output.txt").write_text("Status: FAILED\nCommand: pytest")
+            (iter2_dir / "git_status_after.txt").write_text(
+                "=== Git Status (after) ===\n\n## Changed Files\ntest.py\n\n## Git Status\nM test.py\n"
+            )
+            (iter2_dir / "agent_errors.txt").write_text("Error: some issue occurred\nWarning: check this too")
+
+            # Create RalphLoop instance
+            loop = RalphLoop(task_description="Test task", max_iterations=5, diagnose=True)
+
+            # Capture output
+            f = StringIO()
+            with redirect_stdout(f):
+                loop.print_diagnostic_summary()
+
+            output = f.getvalue()
+
+            # Verify output contains expected information
+            self.assertIn("DIAGNOSTIC SUMMARY", output)
+            self.assertIn("ITERATION 1", output)
+            self.assertIn("ITERATION 2", output)
+            self.assertIn("SUMMARY STATISTICS", output)
+            self.assertIn("Total iterations logged: 2", output)
+            self.assertIn("Passed verifications: 1", output)
+            self.assertIn("Failed verifications: 1", output)
+            self.assertIn(".ralph_logs", output)
+
+        finally:
+            os.chdir(original_cwd)
+            shutil.rmtree(tmpdir)
+
+    def test_diagnose_summary_no_logs(self):
+        """Test print_diagnostic_summary with no log directory."""
+        import tempfile
+        import os
+        import shutil
+        from io import StringIO
+        from contextlib import redirect_stdout
+
+        # Create temporary directory for testing
+        tmpdir = tempfile.mkdtemp()
+        original_cwd = os.getcwd()
+
+        try:
+            os.chdir(tmpdir)
+
+            loop = RalphLoop(task_description="Test task", diagnose=True)
+
+            # Capture output
+            f = StringIO()
+            with redirect_stdout(f):
+                loop.print_diagnostic_summary()
+
+            output = f.getvalue()
+
+            # Should handle gracefully
+            self.assertIn("No diagnostic logs found", output)
+
+        finally:
+            os.chdir(original_cwd)
+            shutil.rmtree(tmpdir)
+
 
 if __name__ == "__main__":
     unittest.main()

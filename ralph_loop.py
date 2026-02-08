@@ -21,6 +21,20 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
+def _ensure_log_dir(iteration: int) -> Path:
+    """Ensure .ralph_logs/iteration_N/ directory exists.
+
+    Args:
+        iteration: Iteration number (1-based)
+
+    Returns:
+        Path to the iteration log directory
+    """
+    log_dir = Path(".ralph_logs") / f"iteration_{iteration}"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+
 def find_supervisor() -> str:
     """Find supervisor.py - check local directory first, then ralph_loop.py's directory.
 
@@ -141,7 +155,8 @@ class RalphLoop:
         max_tokens: Optional[int] = None,
         supervisor_cmd: str = "./supervisor.py",
         agent_cmd: str = "claude -p --dangerously-skip-permissions --model {model} {prompt}",
-        fallback_agents: Optional[List[str]] = None
+        fallback_agents: Optional[List[str]] = None,
+        diagnose: bool = False
     ):
         self.task_description = task_description
         self.verify_cmd = verify_cmd
@@ -153,6 +168,8 @@ class RalphLoop:
         self.fallback_agents = fallback_agents or []
         self.spec_tracker = SpecTracker()
         self.iteration = 0
+        self.diagnose = diagnose
+        self.iteration_summaries: List[Dict] = []
 
     def _get_git_diff(self) -> str:
         """Get current git diff for feedback."""
@@ -164,6 +181,83 @@ class RalphLoop:
         )
         return result.stdout if result.returncode == 0 else ""
 
+    def _get_git_status(self) -> str:
+        """Get current git status for diagnostics."""
+        result = subprocess.run(
+            "git status --short",
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        return result.stdout if result.returncode == 0 else "(git status failed)"
+
+    def _get_git_log_head(self, lines: int = 5) -> str:
+        """Get recent git commit log for diagnostics."""
+        result = subprocess.run(
+            f"git log --oneline -n {lines} HEAD",
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        return result.stdout if result.returncode == 0 else "(git log failed)"
+
+    def _get_changed_files(self) -> str:
+        """Get list of changed files since HEAD."""
+        result = subprocess.run(
+            "git diff --name-only HEAD",
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        return result.stdout if result.returncode == 0 else "(no changes)"
+
+    def _log_git_state(self, iteration: int, phase: str = "after") -> None:
+        """Log git state to diagnostic file.
+
+        Args:
+            iteration: Current iteration number
+            phase: "before" or "after" the iteration
+        """
+        if not self.diagnose:
+            return
+
+        log_dir = _ensure_log_dir(iteration)
+        status_file = log_dir / f"git_status_{phase}.txt"
+
+        status_content = f"=== Git Status ({phase}) ===\n\n"
+        status_content += "## Changed Files\n"
+        status_content += self._get_changed_files() + "\n"
+        status_content += "\n## Git Status\n"
+        status_content += self._get_git_status() + "\n"
+        status_content += "\n## Recent Commits\n"
+        status_content += self._get_git_log_head(3) + "\n"
+
+        with open(status_file, 'w') as f:
+            f.write(status_content)
+
+    def _log_verification_output(self, iteration: int, test_result: bool, output: str = "") -> None:
+        """Log verification/test output to diagnostic file.
+
+        Args:
+            iteration: Current iteration number
+            test_result: Whether tests passed
+            output: Verification command output
+        """
+        if not self.diagnose:
+            return
+
+        log_dir = _ensure_log_dir(iteration)
+        verify_file = log_dir / "verification_output.txt"
+
+        verify_content = f"=== Verification Results ===\n\n"
+        verify_content += f"Status: {'PASSED' if test_result else 'FAILED'}\n"
+        verify_content += f"Command: {self.verify_cmd}\n\n"
+        verify_content += "=== Output ===\n"
+        verify_content += output if output else "(no output captured)"
+
+        with open(verify_file, 'w') as f:
+            f.write(verify_content)
+
     def _run_supervisor(self, prompt: str) -> Tuple[bool, str]:
         """Run supervisor.py with the given prompt, trying fallbacks if primary fails.
 
@@ -173,6 +267,12 @@ class RalphLoop:
         Returns:
             Tuple of (success, output)
         """
+        # Write prompt to log for reproducibility
+        log_dir = _ensure_log_dir(self.iteration)
+        prompt_file = log_dir / "prompt.txt"
+        with open(prompt_file, 'w') as f:
+            f.write(prompt)
+
         # Build list of agents to try (primary + fallbacks)
         agents_to_try = [self.agent_cmd] + self.fallback_agents
 
@@ -211,8 +311,28 @@ class RalphLoop:
                 text=True
             )
 
-            output = result.stdout + result.stderr
+            stdout_output = result.stdout
+            stderr_output = result.stderr
+            output = stdout_output + stderr_output
             last_output = output
+
+            # Write agent output to log files (always write both for consistent observability)
+            output_file = log_dir / "agent_output.txt"
+            error_file = log_dir / "agent_errors.txt"
+
+            with open(output_file, 'w') as f:
+                f.write(stdout_output)
+
+            with open(error_file, 'w') as f:
+                f.write(stderr_output)
+
+            # Log agent command for reproducibility (diagnose mode)
+            if self.diagnose:
+                agent_cmd_file = log_dir / "agent_command.txt"
+                with open(agent_cmd_file, 'w') as f:
+                    f.write(f"Agent: {agent_label}\n")
+                    f.write(f"Command: {cmd}\n")
+                    f.write(f"Return Code: {result.returncode}\n")
 
             if result.returncode == 0:
                 if is_fallback:
@@ -346,6 +466,117 @@ Focus on making the verification pass."""
         print(f"{'='*60}")
         return False
 
+    def print_diagnostic_summary(self) -> None:
+        """Print diagnostic summary of all iterations.
+
+        Reads from .ralph_logs/ and displays:
+        - Summary of all iterations (converged/failed/no-progress)
+        - File changes per iteration
+        - Test results per iteration
+        - Git state per iteration
+        - Any error messages or warnings
+        """
+        logs_dir = Path(".ralph_logs")
+        if not logs_dir.exists():
+            print("\n[!] No diagnostic logs found (.ralph_logs/ directory does not exist)")
+            return
+
+        print("\n" + "="*70)
+        print("DIAGNOSTIC SUMMARY")
+        print("="*70)
+
+        # Find all iteration directories
+        iteration_dirs = sorted([d for d in logs_dir.iterdir() if d.is_dir() and d.name.startswith("iteration_")])
+
+        if not iteration_dirs:
+            print("[!] No iteration directories found in .ralph_logs/")
+            return
+
+        for iter_dir in iteration_dirs:
+            iteration_num = iter_dir.name.split("_")[1]
+            print(f"\n--- ITERATION {iteration_num} ---")
+
+            # Read prompt
+            prompt_file = iter_dir / "prompt.txt"
+            if prompt_file.exists():
+                prompt_content = prompt_file.read_text()
+                # Show first line of prompt (usually indicates initial vs retry)
+                first_line = prompt_content.split('\n')[0]
+                print(f"  Prompt: {first_line[:80]}")
+
+            # Read agent command info
+            agent_cmd_file = iter_dir / "agent_command.txt"
+            if agent_cmd_file.exists():
+                agent_content = agent_cmd_file.read_text()
+                lines = agent_content.split('\n')
+                for line in lines:
+                    if line.startswith("Agent:") or line.startswith("Return Code:"):
+                        print(f"  {line}")
+
+            # Read git status before/after
+            git_status_after = iter_dir / "git_status_after.txt"
+
+            if git_status_after.exists():
+                git_content = git_status_after.read_text()
+                # Extract changed files section
+                in_changed_section = False
+                for line in git_content.split('\n'):
+                    if "## Changed Files" in line:
+                        in_changed_section = True
+                        continue
+                    if in_changed_section and line.startswith("##"):
+                        break
+                    if in_changed_section and line.strip() and not line.startswith("#"):
+                        print(f"  File change: {line.strip()}")
+
+            # Read verification results
+            verify_file = iter_dir / "verification_output.txt"
+            if verify_file.exists():
+                verify_content = verify_file.read_text()
+                # Extract status line
+                for line in verify_content.split('\n'):
+                    if line.startswith("Status:"):
+                        print(f"  Verification: {line}")
+
+            # Read any error output
+            error_file = iter_dir / "agent_errors.txt"
+            if error_file.exists():
+                error_content = error_file.read_text().strip()
+                if error_content:
+                    # Show first error line and line count
+                    error_lines = error_content.split('\n')
+                    first_error = error_lines[0][:100]
+                    print(f"  Errors: {first_error}")
+                    if len(error_lines) > 1:
+                        print(f"           ({len(error_lines)} total error lines)")
+
+        # Summary statistics
+        print("\n" + "-"*70)
+        print("SUMMARY STATISTICS")
+        print("-"*70)
+        print(f"Total iterations logged: {len(iteration_dirs)}")
+        print(f"Max iterations configured: {self.max_iterations}")
+
+        # Count successes
+        successful_verifications = 0
+        failed_verifications = 0
+
+        for iter_dir in iteration_dirs:
+            verify_file = iter_dir / "verification_output.txt"
+            if verify_file.exists():
+                content = verify_file.read_text()
+                if "Status: PASSED" in content:
+                    successful_verifications += 1
+                elif "Status: FAILED" in content:
+                    failed_verifications += 1
+
+        print(f"Passed verifications: {successful_verifications}")
+        print(f"Failed verifications: {failed_verifications}")
+
+        # Show logs directory location
+        print(f"\nDetailed logs available in: {logs_dir.resolve()}")
+        print("="*70)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -412,6 +643,11 @@ Examples:
         "--fallback-agents",
         help="Comma-separated fallback agent commands (e.g., 'gh copilot suggest {prompt},aider {prompt}')"
     )
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help="Enable diagnostic mode: logs detailed iteration info and prints summary at end"
+    )
 
     args = parser.parse_args()
 
@@ -431,10 +667,16 @@ Examples:
         max_tokens=args.max_tokens,
         supervisor_cmd=supervisor_path,
         agent_cmd=args.agent,
-        fallback_agents=fallback_agents
+        fallback_agents=fallback_agents,
+        diagnose=args.diagnose
     )
 
     success = loop.run()
+
+    # Display diagnostic summary if --diagnose flag was set
+    if args.diagnose:
+        loop.print_diagnostic_summary()
+
     sys.exit(0 if success else 1)
 
 
