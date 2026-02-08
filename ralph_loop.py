@@ -14,6 +14,7 @@ Progress persists through artifacts (git, files), not agent memory.
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -300,7 +301,7 @@ class RalphLoop:
             # Add agent command
             cmd_parts.extend(['--agent', agent_cmd])
 
-            cmd = ' '.join(f"'{part}'" if ' ' in part else part for part in cmd_parts)
+            cmd = ' '.join(shlex.quote(part) for part in cmd_parts)
 
             print(f"\n [exec] ({agent_label}) {cmd}")
 
@@ -396,12 +397,41 @@ progress persists through git commits, not conversation history.
 
 Focus on making the verification pass."""
 
+    @staticmethod
+    def _ensure_gitignore_entry(pattern: str) -> None:
+        """Ensure a pattern is in .gitignore so it doesn't dirty the working tree.
+
+        Commits the change so the tree stays clean for precondition checks.
+        """
+        gitignore = Path(".gitignore")
+        if gitignore.exists():
+            content = gitignore.read_text()
+            if pattern in content.splitlines():
+                return
+            # Ensure existing content ends with newline before appending
+            prefix = "" if content.endswith('\n') else "\n"
+        else:
+            prefix = ""
+        with open(gitignore, 'a') as f:
+            f.write(f"{prefix}{pattern}\n")
+        subprocess.run(
+            ["git", "add", ".gitignore"],
+            capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", f"chore: add {pattern} to .gitignore"],
+            capture_output=True
+        )
+
     def run(self) -> bool:
         """Run the Ralph Loop.
 
         Returns:
             True if task completed successfully, False otherwise
         """
+        # Ensure .ralph_logs/ won't dirty the working tree
+        self._ensure_gitignore_entry(".ralph_logs/")
+
         print("=== RALPH LOOP STARTED ===")
         print(f"Task: {self.task_description}")
         print(f"Max Iterations: {self.max_iterations}")
