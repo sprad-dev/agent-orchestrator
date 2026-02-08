@@ -31,6 +31,8 @@ class VerificationConfig:
     enable_test_count_check: bool = True
     enable_pytest_validation: bool = True
     enable_coverage_check: bool = False
+    enable_integration_check: bool = True
+    integration_strict_mode: bool = False
     
     # Test configuration
     test_command: str = "pytest"
@@ -84,6 +86,8 @@ class VerificationConfig:
             'enable_test_count_check',
             'enable_pytest_validation',
             'enable_coverage_check',
+            'enable_integration_check',
+            'integration_strict_mode',
             'test_command',
             'test_timeout_seconds',
             'baseline_path',
@@ -178,6 +182,8 @@ class VerificationConfig:
             'enable_test_count_check': self.enable_test_count_check,
             'enable_pytest_validation': self.enable_pytest_validation,
             'enable_coverage_check': self.enable_coverage_check,
+            'enable_integration_check': self.enable_integration_check,
+            'integration_strict_mode': self.integration_strict_mode,
             'test_command': self.test_command,
             'test_timeout_seconds': self.test_timeout_seconds,
             'baseline_path': self.baseline_path,

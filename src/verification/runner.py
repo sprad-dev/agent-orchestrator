@@ -46,9 +46,11 @@ class VerificationRunner:
             enable_test_count=config.enable_test_count_check,
             enable_pytest_validator=config.enable_pytest_validation,
             enable_coverage=config.enable_coverage_check,
+            enable_integration_check=config.enable_integration_check,
             baseline_path=self.baseline_path,
             min_coverage=config.coverage_minimum_percent or 80.0,
-            test_command=self.verify_cmd
+            test_command=self.verify_cmd,
+            integration_strict_mode=config.integration_strict_mode
         )
         
         # Backwards compatibility: expose enable flags

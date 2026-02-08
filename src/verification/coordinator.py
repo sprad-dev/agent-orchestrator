@@ -11,6 +11,7 @@ from src.verification.syntax_check import SyntaxCheckLayer
 from src.verification.test_count import TestCountLayer
 from src.verification.pytest_validator import PytestValidatorLayer
 from src.verification.coverage_check import CoverageCheckLayer
+from src.verification.integration_check import IntegrationCheckLayer
 
 
 class LayerCoordinator:
@@ -42,36 +43,43 @@ class LayerCoordinator:
         enable_test_count: bool = True,
         enable_pytest_validator: bool = True,
         enable_coverage: bool = True,
+        enable_integration_check: bool = True,
         baseline_path: str = '.test_baseline',
         min_coverage: float = 80.0,
-        test_command: str = "pytest"
+        test_command: str = "pytest",
+        integration_strict_mode: bool = False
     ) -> None:
         """Register all default verification layers.
-        
+
         Args:
             enable_file_exists: Whether to enable file existence check
             enable_syntax_check: Whether to enable syntax check
             enable_test_count: Whether to enable test count check
             enable_pytest_validator: Whether to enable pytest validator
             enable_coverage: Whether to enable coverage check
+            enable_integration_check: Whether to enable integration verification
             baseline_path: Path to test baseline file
             min_coverage: Minimum coverage percentage
             test_command: Command to run tests
+            integration_strict_mode: If True, validate entrypoints exist in code
         """
         if enable_file_exists:
             self.register_layer(FileExistsLayer())
-        
+
         if enable_syntax_check:
             self.register_layer(SyntaxCheckLayer())
-        
+
         if enable_test_count:
             self.register_layer(TestCountLayer(baseline_path))
-        
+
         if enable_pytest_validator:
             self.register_layer(PytestValidatorLayer())
-        
+
         if enable_coverage:
             self.register_layer(CoverageCheckLayer(min_coverage, test_command))
+
+        if enable_integration_check:
+            self.register_layer(IntegrationCheckLayer(strict_mode=integration_strict_mode))
     
     def run_layers(self, layer_level: int, **kwargs) -> Tuple[bool, List[LayerResult]]:
         """Execute all layers at a given level.
