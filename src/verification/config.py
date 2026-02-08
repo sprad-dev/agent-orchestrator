@@ -24,7 +24,10 @@ except ImportError:
 @dataclass
 class VerificationConfig:
     """Configuration for verification thresholds and settings."""
-    
+
+    # Language configuration
+    language: Optional[str] = None  # Auto-detect if None (python, javascript, typescript, csharp, dotnet)
+
     # Layer enable/disable
     enable_file_exists_check: bool = True
     enable_syntax_check: bool = True
@@ -33,7 +36,7 @@ class VerificationConfig:
     enable_coverage_check: bool = False
     enable_integration_check: bool = True
     integration_strict_mode: bool = False
-    
+
     # Test configuration
     test_command: str = "pytest"
     test_timeout_seconds: int = 300
@@ -81,6 +84,7 @@ class VerificationConfig:
         """
         # Extract known fields
         known_fields = {
+            'language',
             'enable_file_exists_check',
             'enable_syntax_check',
             'enable_test_count_check',
@@ -172,7 +176,7 @@ class VerificationConfig:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary.
-        
+
         Returns:
             Dictionary representation of config (excludes None values)
         """
@@ -200,6 +204,10 @@ class VerificationConfig:
             'retry_max_delay': self.retry_max_delay,
             'retry_jitter': self.retry_jitter,
         }
+
+        # Add optional language field only if not None
+        if self.language is not None:
+            result['language'] = self.language
         
         # Add optional fields only if not None (for TOML compatibility)
         if self.max_execution_time_seconds is not None:

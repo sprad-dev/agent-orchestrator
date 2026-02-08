@@ -12,6 +12,8 @@ from src.verification.test_count import TestCountLayer
 from src.verification.pytest_validator import PytestValidatorLayer
 from src.verification.coverage_check import CoverageCheckLayer
 from src.verification.integration_check import IntegrationCheckLayer
+from src.verification.language_detector import Language
+from src.verification.validator_factory import ValidatorFactory
 
 
 class LayerCoordinator:
@@ -80,7 +82,61 @@ class LayerCoordinator:
 
         if enable_integration_check:
             self.register_layer(IntegrationCheckLayer(strict_mode=integration_strict_mode))
-    
+
+    def register_language_aware_layers(
+        self,
+        language: Optional[Language] = None,
+        project_path: str = ".",
+        enable_file_exists: bool = True,
+        enable_syntax_check: bool = True,
+        enable_test_count: bool = True,
+        enable_test_validator: bool = True,
+        enable_coverage: bool = True,
+        enable_integration_check: bool = True,
+        baseline_path: str = '.test_baseline',
+        min_coverage: float = 80.0,
+        test_command: str = None,
+        integration_strict_mode: bool = False
+    ) -> None:
+        """Register language-aware verification layers using validator factory.
+
+        Args:
+            language: Optional language override (if None, auto-detect)
+            project_path: Path to project root for auto-detection
+            enable_file_exists: Whether to enable file existence check
+            enable_syntax_check: Whether to enable syntax check
+            enable_test_count: Whether to enable test count check
+            enable_test_validator: Whether to enable test validator
+            enable_coverage: Whether to enable coverage check
+            enable_integration_check: Whether to enable integration verification
+            baseline_path: Path to test baseline file
+            min_coverage: Minimum coverage percentage
+            test_command: Command to run tests (if None, uses language default)
+            integration_strict_mode: If True, validate entrypoints exist in code
+        """
+        factory = ValidatorFactory(language=language, project_path=project_path)
+
+        # Use factory default test command if not provided
+        if test_command is None:
+            test_command = factory.get_default_test_command()
+
+        # Register all validators from factory
+        validators = factory.create_all_validators(
+            enable_file_exists=enable_file_exists,
+            enable_syntax_check=enable_syntax_check,
+            enable_test_count=enable_test_count,
+            enable_test_validator=enable_test_validator,
+            enable_coverage=enable_coverage,
+            enable_integration_check=enable_integration_check,
+            baseline_path=baseline_path,
+            min_coverage=min_coverage,
+            test_command=test_command,
+            integration_strict_mode=integration_strict_mode
+        )
+
+        for validator in validators:
+            self.register_layer(validator)
+
     def run_layers(self, layer_level: int, **kwargs) -> Tuple[bool, List[LayerResult]]:
         """Execute all layers at a given level.
         
