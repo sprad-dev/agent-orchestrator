@@ -23,7 +23,7 @@ from src.shell import (
     truncate_error,
     build_agent_command,
 )
-from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist
+from src.preconditions import check_git_clean, check_agent_reachable, check_tests_exist, check_syntax
 from src.models.cost_tracker import AgentCostTracker, BudgetExceededException
 
 
@@ -167,6 +167,22 @@ class EscalationExecutor:
             print(f" [✓] {message}")
         except Exception as e:
             print(f" [X] CRITICAL: check_tests_exist raised exception: {e}")
+            return False
+
+        # Check 4: Python syntax validation (all .py files)
+        try:
+            result = check_syntax()  # Checks all Python files in repo
+            if not isinstance(result, tuple) or len(result) != 2:
+                print(f" [X] CRITICAL: check_syntax returned invalid type: {type(result)}")
+                return False
+            passed, message = result
+            if not passed:
+                print(f" [X] Syntax check failed: {message}")
+                print("     Fix syntax errors before running agent to avoid wasted cycles.")
+                return False
+            print(f" [✓] {message}")
+        except Exception as e:
+            print(f" [X] CRITICAL: check_syntax raised exception: {e}")
             return False
 
         # Parse context files from task

@@ -4,7 +4,9 @@ This module contains individual precondition checks.
 Each check returns (passed: bool, message: str).
 """
 
-from typing import Tuple
+import py_compile
+from pathlib import Path
+from typing import Tuple, List
 from src.shell import run_shell, truncate_error
 
 
@@ -90,3 +92,59 @@ def check_agent_reachable(agent_cmd_template: str) -> Tuple[bool, str]:
             return False, f"Agent command '{cmd_name}' not found in PATH"
     except Exception as e:
         return False, f"Failed to parse agent command: {e}"
+
+
+def check_syntax(paths: List[str] = None) -> Tuple[bool, str]:
+    """Check Python syntax before agent execution.
+
+    Validates Python files using py_compile to catch syntax errors early,
+    preventing wasted agent cycles on files that won't even parse.
+
+    Args:
+        paths: Optional list of Python file paths to check.
+               If None, checks all .py files in current directory tree.
+
+    Returns:
+        Tuple of (passed: bool, message: str)
+    """
+    if paths is None:
+        # Find all Python files in current directory
+        py_files = list(Path('.').rglob('*.py'))
+        # Filter out common excludes
+        paths = [str(p) for p in py_files
+                if not any(x in str(p) for x in ['.venv', '__pycache__', '.git', 'node_modules'])]
+
+    if not paths:
+        return True, "No Python files to check"
+
+    errors = []
+    checked_count = 0
+
+    for file_path in paths:
+        path = Path(file_path)
+
+        # Skip if file doesn't exist
+        if not path.exists():
+            continue
+
+        # Skip non-Python files
+        if path.suffix != '.py':
+            continue
+
+        checked_count += 1
+
+        try:
+            py_compile.compile(str(path), doraise=True)
+        except py_compile.PyCompileError as e:
+            errors.append(f"{file_path}: {e.msg}")
+        except Exception as e:
+            errors.append(f"{file_path}: {str(e)}")
+
+    if checked_count == 0:
+        return True, "No Python files to check"
+
+    if errors:
+        truncated_errors = truncate_error("\n".join(errors))
+        return False, f"Syntax errors found:\n{truncated_errors}"
+
+    return True, f"Python syntax valid ({checked_count} file(s) checked)"
