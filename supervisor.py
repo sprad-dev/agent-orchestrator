@@ -52,10 +52,85 @@ def load_config(config_path: str = None) -> dict:
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-            return config if config is not None else {}
+            if config is None:
+                return {}
+            # Validate YAML structure is a dict, not a list or scalar
+            if not isinstance(config, dict):
+                warnings.warn(
+                    f"Config file {config_path} must be a YAML dict/object, "
+                    f"not {type(config).__name__}. Ignoring config."
+                )
+                return {}
+            return config
     except yaml.YAMLError as e:
         warnings.warn(f"Failed to parse YAML config at {config_path}: {e}")
         return {}
+
+
+def validate_config(config: dict) -> list:
+    """Validate loaded configuration and return list of warnings.
+    
+    Does NOT raise exceptions - only returns warnings. This allows
+    graceful degradation and helpful debugging.
+    
+    Args:
+        config: Loaded configuration dict.
+    
+    Returns:
+        List of warning strings. Empty list if config is valid.
+    """
+    warnings_list = []
+    
+    if not config:
+        return warnings_list
+    
+    # Known valid keys
+    valid_keys = {
+        'verify_cmd', 'agent_cmd', 'models', 'test_model', 'impl_model',
+        'adversary_model', 'max_cost', 'max_tokens'
+    }
+    
+    # Check for unknown keys
+    unknown_keys = set(config.keys()) - valid_keys
+    if unknown_keys:
+        warnings_list.append(
+            f"Unknown config keys will be ignored: {', '.join(sorted(unknown_keys))}"
+        )
+    
+    # Validate agent_cmd contains {prompt} placeholder if present
+    if 'agent_cmd' in config and config['agent_cmd']:
+        agent_cmd = config['agent_cmd']
+        if not isinstance(agent_cmd, str):
+            warnings_list.append(
+                f"agent_cmd must be a string, got {type(agent_cmd).__name__}"
+            )
+        elif '{prompt}' not in agent_cmd:
+            warnings_list.append(
+                "agent_cmd must contain '{prompt}' placeholder for task injection"
+            )
+    
+    # Validate verify_cmd is a string if present
+    if 'verify_cmd' in config and config['verify_cmd']:
+        verify_cmd = config['verify_cmd']
+        if not isinstance(verify_cmd, str):
+            warnings_list.append(
+                f"verify_cmd must be a string, got {type(verify_cmd).__name__}"
+            )
+        elif not verify_cmd.strip():
+            warnings_list.append("verify_cmd is an empty string")
+    
+    # Validate models is a list if present
+    if 'models' in config and config['models']:
+        models = config['models']
+        if not isinstance(models, list):
+            warnings_list.append(
+                f"models must be a list, got {type(models).__name__}"
+            )
+        elif not all(isinstance(m, str) for m in models):
+            warnings_list.append("All items in models must be strings")
+    
+    return warnings_list
+
 
 
 class RalphLoop:
@@ -199,6 +274,20 @@ def main():
     # Load configuration from agent.yaml
     config = load_config()
     
+    # Validate config and print warnings
+    config_warnings = validate_config(config)
+    for warning in config_warnings:
+        warnings.warn(warning)
+    
+    # Helper function to determine config source
+    def get_source(cli_value, config_key):
+        if cli_value is not None:
+            return "CLI"
+        elif config_key in config and config[config_key]:
+            return "config"
+        else:
+            return "default"
+    
     # Implement config priority: CLI Args > agent.yaml > Hardcoded Defaults
     verify_cmd = args.verify or config.get('verify_cmd') or DEFAULT_VERIFIER
     agent_template = args.agent or config.get('agent_cmd') or DEFAULT_AGENT
@@ -214,14 +303,16 @@ def main():
     # Handle --show-config flag
     if args.show_config:
         print("=== Resolved Configuration ===")
-        print(f"verify_cmd: {verify_cmd}")
-        print(f"agent_cmd: {agent_template}")
-        print(f"models: {models if models else DEFAULT_MODELS}")
-        print(f"test_model: {args.test_model}")
-        print(f"impl_model: {args.impl_model}")
-        print(f"adversary_model: {args.adversary_model}")
-        print(f"max_cost: {args.max_cost}")
-        print(f"max_tokens: {args.max_tokens}")
+        print(f"verify_cmd: {verify_cmd} (source: {get_source(args.verify, 'verify_cmd')})")
+        print(f"agent_cmd: {agent_template} (source: {get_source(args.agent, 'agent_cmd')})")
+        models_str = ', '.join(models) if models else DEFAULT_MODELS
+        models_source = get_source(args.models, 'models')
+        print(f"models: {models_str} (source: {models_source})")
+        print(f"test_model: {args.test_model} (source: {'CLI' if args.test_model else 'default'})")
+        print(f"impl_model: {args.impl_model} (source: {'CLI' if args.impl_model else 'default'})")
+        print(f"adversary_model: {args.adversary_model} (source: {'CLI' if args.adversary_model else 'default'})")
+        print(f"max_cost: {args.max_cost} (source: {'CLI' if args.max_cost else 'default'})")
+        print(f"max_tokens: {args.max_tokens} (source: {'CLI' if args.max_tokens else 'default'})")
         sys.exit(0)
 
     # Handle --self-check command

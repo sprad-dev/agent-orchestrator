@@ -164,6 +164,109 @@ python calculate_agent_impact.py --issue 8
 python calculate_agent_impact.py --simulate
 ```
 
+## Configuration
+
+### Using agent.yaml
+
+The supervisor reads configuration from `agent.yaml` in your project root. This allows you to set project-specific defaults for verification commands, agent templates, models, and cost limits without passing them on the command line every time.
+
+**Quick Start:**
+
+1. Copy `agent.yaml.example` to `agent.yaml`:
+   ```bash
+   cp agent.yaml.example agent.yaml
+   ```
+
+2. Edit `agent.yaml` for your project:
+   ```yaml
+   # Python projects use pytest
+   verify_cmd: pytest
+   
+   # Go projects use go test
+   # verify_cmd: go test ./...
+   
+   # JavaScript projects use npm test
+   # verify_cmd: npm test
+   ```
+
+3. Run the supervisor (no need to specify --verify every time):
+   ```bash
+   ./supervisor.py "Add feature"
+   ```
+
+### Configuration Priority
+
+The supervisor resolves configuration in this order (highest priority first):
+
+1. **CLI Arguments** — Pass `--verify`, `--agent`, `--models`, etc. to override everything
+2. **agent.yaml** — Project defaults loaded from config file
+3. **Hardcoded Defaults** — Built-in fallbacks
+
+Example: If `agent.yaml` specifies `verify_cmd: pytest` but you run with `--verify "npm test"`, npm test wins.
+
+### Supported Configuration Keys
+
+Currently supported keys in `agent.yaml`:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `verify_cmd` | string | `pytest` | Command to verify work (pytest, go test, npm test, etc.) |
+| `agent_cmd` | string | `claude -p --dangerously-skip-permissions --model {model} {prompt}` | Agent invocation template (use `{model}` for substitution) |
+| `models` | list | `[claude-4.5-haiku, claude-4.5-haiku, claude-4.5-sonnet]` | Escalation chain for single-phase mode |
+
+Note: Advanced options like `test_model`, `impl_model`, `adversary_model`, `max_cost`, and `max_tokens` are currently CLI-only. Pass them as command-line arguments.
+
+### Example Configurations
+
+**Python project (basic):**
+```yaml
+verify_cmd: pytest
+agent_cmd: "claude -p --dangerously-skip-permissions --model {model} {prompt}"
+models:
+  - claude-4.5-haiku
+  - claude-4.5-haiku
+  - claude-4.5-sonnet
+```
+
+Then run with:
+```bash
+./supervisor.py "Add feature"
+```
+
+**Python project with two-phase execution (CLI args):**
+```bash
+./supervisor.py "Add feature" \
+  --test-model claude-4.5-sonnet \
+  --impl-model claude-4.5-haiku \
+  --max-cost 0.50
+```
+
+**Go project with escalation:**
+```yaml
+verify_cmd: go test ./...
+models:
+  - claude-4.5-haiku
+  - claude-4.5-haiku
+  - claude-4.5-sonnet
+```
+
+**JavaScript project with cost limit (CLI):**
+```bash
+./supervisor.py "Add feature" \
+  --max-cost 0.60 \
+  --max-tokens 150000
+```
+
+### View Resolved Configuration
+
+To see what configuration the supervisor will use:
+
+```bash
+./supervisor.py --show-config
+```
+
+This shows the final resolved values after merging CLI args, agent.yaml, and defaults.
+
 ## Basic Usage
 
 ```bash

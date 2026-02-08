@@ -1,0 +1,102 @@
+# Agent Orchestrator Configuration File
+#
+# This file defines how the supervisor executes agent tasks and verifies their work.
+# Save as 'agent.yaml' in your project root and customize for your setup.
+#
+# Configuration Priority: CLI Args > agent.yaml > Hardcoded Defaults
+# - CLI arguments (--verify, --agent, etc.) override this file
+# - This file overrides built-in defaults
+# - Hardcoded defaults are used only if neither CLI nor config file specify a value
+
+# ============================================================================
+# VERIFICATION COMMAND
+# ============================================================================
+# How to verify that the agent's work is correct.
+# Supported: pytest, go test, npm test, cargo test, or any shell command.
+# Default: pytest
+
+verify_cmd: pytest
+
+# Example for Go projects:
+# verify_cmd: go test ./...
+
+# Example for JavaScript/Node.js projects:
+# verify_cmd: npm test
+
+# Example for Rust projects:
+# verify_cmd: cargo test
+
+# ============================================================================
+# AGENT COMMAND TEMPLATE
+# ============================================================================
+# Template for invoking the AI agent.
+# Use {model} as a placeholder for the model name (will be substituted).
+# Default: claude -p --dangerously-skip-permissions --model {model} {prompt}
+
+agent_cmd: "claude -p --dangerously-skip-permissions --model {model} {prompt}"
+
+# ============================================================================
+# MODEL CONFIGURATION
+# ============================================================================
+# Models for escalation mode (try cheap models first, escalate on failure).
+# Specify as a list of model identifiers.
+# Default: ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"]
+
+models:
+  - claude-4.5-haiku
+  - claude-4.5-haiku
+  - claude-4.5-sonnet
+
+# ============================================================================
+# NOTE: CLI-ONLY OPTIONS
+# ============================================================================
+# The following options are currently CLI-only and cannot be set in this file.
+# Use command-line arguments instead:
+#
+#   --test-model MODEL              Model for test generation (two-phase mode)
+#   --impl-model MODEL              Model for implementation (two-phase mode)
+#   --adversary-model MODEL         Model for adversarial review (three-phase mode)
+#   --max-cost DOLLARS              Maximum cost per run (e.g., 1.00 for $1.00)
+#   --max-tokens NUM_TOKENS         Maximum tokens per run
+#
+# Example: 
+#   ./supervisor.py "task" --test-model claude-4.5-sonnet --impl-model claude-4.5-haiku --max-cost 0.50
+
+# ============================================================================
+# EXAMPLE CONFIGURATIONS BY PROJECT TYPE
+# ============================================================================
+
+# --- PYTHON PROJECT (pytest) ---
+# verify_cmd: pytest
+# agent_cmd: "claude -p --dangerously-skip-permissions --model {model} {prompt}"
+# models:
+#   - claude-4.5-haiku
+#   - claude-4.5-haiku
+#   - claude-4.5-sonnet
+#
+# With CLI args:
+#   ./supervisor.py "task" --test-model claude-4.5-sonnet --impl-model claude-4.5-haiku --max-cost 0.50
+
+# --- GO PROJECT (go test) ---
+# verify_cmd: go test ./...
+# agent_cmd: "claude -p --dangerously-skip-permissions --model {model} {prompt}"
+# models:
+#   - claude-4.5-haiku
+#   - claude-4.5-haiku
+#   - claude-4.5-sonnet
+
+# --- JAVASCRIPT/NODE.JS PROJECT (npm test) ---
+# verify_cmd: npm test
+# agent_cmd: "claude -p --dangerously-skip-permissions --model {model} {prompt}"
+# models:
+#   - claude-4.5-haiku
+#   - claude-4.5-haiku
+#   - claude-4.5-sonnet
+
+# --- RUST PROJECT (cargo test) ---
+# verify_cmd: cargo test
+# agent_cmd: "claude -p --dangerously-skip-permissions --model {model} {prompt}"
+# models:
+#   - claude-4.5-haiku
+#   - claude-4.5-haiku
+#   - claude-4.5-sonnet
