@@ -135,28 +135,30 @@ def test_l1_allows_empty_file_list(monkeypatch):
         Path(baseline.name).unlink()
 
 
-def test_l1_integration_with_all_layers(monkeypatch):
+def test_l1_integration_with_all_layers(monkeypatch, tmp_path):
     """L1 should integrate smoothly with other verification layers."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
         f.write('def test_example():\n    assert True\n')
         f.flush()
-        
-        runner = VerificationRunner()
-        
+
+        # Use isolated baseline so shared .test_baseline doesn't interfere
+        baseline = str(tmp_path / ".test_baseline")
+        runner = VerificationRunner(baseline_path=baseline)
+
         # Mock pytest to return successful test run
         def mock_run_shell(cmd, ignore_error=False):
             return True, "collected 10 items\n\n10 passed in 0.5s", ""
-        
+
         monkeypatch.setattr('src.verification.runner.run_shell', mock_run_shell)
-        
+
         passed, output = runner.run(modified_files=[f.name])
-        
+
         assert passed is True
         # Should see all layers execute
         assert '✓ L1 All' in output and 'file(s) exist' in output
         assert '✓ L2 Python syntax valid' in output
         assert '✓ L3 Pytest' in output
-        
+
         Path(f.name).unlink()
 
 

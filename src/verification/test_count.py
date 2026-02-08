@@ -11,7 +11,7 @@ from datetime import datetime
 from src.verification.layer import Layer, LayerResult
 
 
-class TestCountLayer(Layer):
+class CountBaselineLayer(Layer):
     """L3: Test count validation layer."""
     
     def __init__(self, baseline_path: str = '.test_baseline'):
@@ -124,20 +124,20 @@ class TestCountLayer(Layer):
 
 def check_test_count(current_count: int, baseline_path: str = '.test_baseline') -> Tuple[bool, str]:
     """Check that test count hasn't decreased from baseline.
-    
-    Deprecated: Use TestCountLayer.run() instead.
+
+    Deprecated: Use CountBaselineLayer.run() instead.
     Kept for backwards compatibility.
-    
+
     Args:
         current_count: Number of tests collected in current run
         baseline_path: Path to baseline file (default: .test_baseline)
-        
+
     Returns:
         Tuple of (passed, message)
         - passed: True if count is >= baseline (or first run)
         - message: Human-readable status message
     """
-    layer = TestCountLayer(baseline_path)
+    layer = CountBaselineLayer(baseline_path)
     result = layer.run(test_count=current_count)
     return result.passed, result.message
 

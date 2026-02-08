@@ -10,7 +10,7 @@ from src.verification.validators.nodejs_syntax import NodeJSSyntaxLayer
 from src.verification.validators.nodejs_test import NodeJSTestValidatorLayer
 from src.verification.validators.nodejs_coverage import NodeJSCoverageLayer
 from src.verification.file_exists import FileExistsLayer
-from src.verification.test_count import TestCountLayer
+from src.verification.test_count import CountBaselineLayer
 from src.verification.integration_check import IntegrationCheckLayer
 
 
@@ -142,7 +142,7 @@ class TestValidatorFactoryCreateAll:
         # Check types
         assert any(isinstance(v, FileExistsLayer) for v in validators)
         assert any(isinstance(v, SyntaxCheckLayer) for v in validators)
-        assert any(isinstance(v, TestCountLayer) for v in validators)
+        assert any(isinstance(v, CountBaselineLayer) for v in validators)
         assert any(isinstance(v, PytestValidatorLayer) for v in validators)
         assert any(isinstance(v, CoverageCheckLayer) for v in validators)
         assert any(isinstance(v, IntegrationCheckLayer) for v in validators)
@@ -165,7 +165,7 @@ class TestValidatorFactoryCreateAll:
         # Check types
         assert any(isinstance(v, FileExistsLayer) for v in validators)
         assert any(isinstance(v, NodeJSSyntaxLayer) for v in validators)
-        assert any(isinstance(v, TestCountLayer) for v in validators)
+        assert any(isinstance(v, CountBaselineLayer) for v in validators)
         assert any(isinstance(v, NodeJSTestValidatorLayer) for v in validators)
         assert any(isinstance(v, NodeJSCoverageLayer) for v in validators)
         assert any(isinstance(v, IntegrationCheckLayer) for v in validators)

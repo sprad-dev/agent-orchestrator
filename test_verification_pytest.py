@@ -61,6 +61,25 @@ def test_parse_collection_count():
     assert parse_test_count(output) == 0
 
 
+def test_parse_count_quiet_mode():
+    """Should parse test count from pytest -q output (no 'collected' line)."""
+    output = "490 passed, 2 warnings in 59.08s"
+    assert parse_test_count(output) == 490
+
+    output = "1 passed in 0.01s"
+    assert parse_test_count(output) == 1
+
+
+def test_validate_quiet_mode_output():
+    """Pytest -q output should be accepted (has 'passed' but no 'collected')."""
+    output = """.......
+490 passed, 2 warnings in 59.08s (0:01:00)
+"""
+    valid, message = validate_pytest_ran(output)
+    assert valid is True
+    assert '490' in message
+
+
 def test_missing_collection_phase():
     """Output without collection phase should be rejected."""
     output = """

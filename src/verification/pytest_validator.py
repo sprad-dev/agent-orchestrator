@@ -28,11 +28,11 @@ class PytestValidatorLayer(Layer):
     
     def run(self, pytest_output: str = None, **kwargs) -> LayerResult:
         """Validate that pytest ran tests.
-        
+
         Args:
             pytest_output: Pytest output string
             **kwargs: Ignored (for compatibility)
-            
+
         Returns:
             LayerResult with validation status
         """
@@ -42,22 +42,27 @@ class PytestValidatorLayer(Layer):
                 message="No pytest output to validate",
                 error_details=["Empty pytest output"]
             )
-        
+
         # Check for collection phase
         collected_match = re.search(r'collected (\d+) item', pytest_output)
-        
+
         if not collected_match:
-            # No collection phase found
-            error_msg = "Pytest collection failed (errors during collection)" if ('ERROR' in pytest_output or 'FAILED' in pytest_output[:200]) else "Pytest output missing collection phase"
-            return LayerResult(
-                passed=False,
-                message=error_msg,
-                error_details=[error_msg]
-            )
-        
-        # Extract test count
-        test_count = int(collected_match.group(1))
-        
+            # Fallback for pytest -q flag (no "collected" line, check for "passed" count)
+            passed_match = re.search(r'(\d+) passed', pytest_output)
+            if passed_match:
+                test_count = int(passed_match.group(1))
+            else:
+                # No collection phase or pass count found
+                error_msg = "Pytest collection failed (errors during collection)" if ('ERROR' in pytest_output or 'FAILED' in pytest_output[:200]) else "Pytest output missing collection phase"
+                return LayerResult(
+                    passed=False,
+                    message=error_msg,
+                    error_details=[error_msg]
+                )
+        else:
+            # Extract test count from collection phase
+            test_count = int(collected_match.group(1))
+
         if test_count == 0:
             error_msg = "Pytest collected 0 items (no tests ran)"
             return LayerResult(
@@ -65,7 +70,7 @@ class PytestValidatorLayer(Layer):
                 message=error_msg,
                 error_details=[error_msg]
             )
-        
+
         return LayerResult(
             passed=True,
             message=f"Pytest collected and ran {test_count} test(s)"
@@ -93,14 +98,20 @@ def validate_pytest_ran(output: str) -> Tuple[bool, str]:
 
 def parse_test_count(output: str) -> int:
     """Parse test count from pytest output.
-    
+
     Args:
         output: Pytest output string
-        
+
     Returns:
         Number of tests collected, or 0 if not found
     """
     collected_match = re.search(r'collected (\d+) item', output)
     if collected_match:
         return int(collected_match.group(1))
+
+    # Fallback for pytest -q flag (no "collected" line, use "passed" count)
+    passed_match = re.search(r'(\d+) passed', output)
+    if passed_match:
+        return int(passed_match.group(1))
+
     return 0

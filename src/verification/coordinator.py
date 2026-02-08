@@ -8,7 +8,7 @@ from typing import List, Dict, Tuple, Optional
 from src.verification.layer import Layer, LayerResult
 from src.verification.file_exists import FileExistsLayer
 from src.verification.syntax_check import SyntaxCheckLayer
-from src.verification.test_count import TestCountLayer
+from src.verification.test_count import CountBaselineLayer
 from src.verification.pytest_validator import PytestValidatorLayer
 from src.verification.coverage_check import CoverageCheckLayer
 from src.verification.integration_check import IntegrationCheckLayer
@@ -72,7 +72,7 @@ class LayerCoordinator:
             self.register_layer(SyntaxCheckLayer())
 
         if enable_test_count:
-            self.register_layer(TestCountLayer(baseline_path))
+            self.register_layer(CountBaselineLayer(baseline_path))
 
         if enable_pytest_validator:
             self.register_layer(PytestValidatorLayer())

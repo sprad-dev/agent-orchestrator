@@ -8,7 +8,7 @@ from typing import List, Optional
 from src.verification.layer import Layer
 from src.verification.language_detector import Language, detect_language
 from src.verification.file_exists import FileExistsLayer
-from src.verification.test_count import TestCountLayer
+from src.verification.test_count import CountBaselineLayer
 from src.verification.integration_check import IntegrationCheckLayer
 
 # Python validators
@@ -149,7 +149,7 @@ class ValidatorFactory:
                 validators.append(syntax_validator)
 
         if enable_test_count:
-            validators.append(TestCountLayer(baseline_path))
+            validators.append(CountBaselineLayer(baseline_path))
 
         if enable_test_validator:
             test_validator = self.create_test_validator(test_command)

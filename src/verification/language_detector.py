@@ -26,14 +26,14 @@ DETECTION_PATTERNS = [
     # TypeScript (check before JavaScript since TS projects often have package.json)
     (Language.TYPESCRIPT, ["tsconfig.json"]),
 
-    # JavaScript/Node.js
-    (Language.JAVASCRIPT, ["package.json", "package-lock.json", "yarn.lock"]),
+    # Python (check before JavaScript to avoid misdetection on stray package-lock.json)
+    (Language.PYTHON, ["setup.py", "pyproject.toml", "requirements.txt", "Pipfile"]),
+
+    # JavaScript/Node.js (package-lock.json alone is an artifact, not a marker)
+    (Language.JAVASCRIPT, ["package.json", "yarn.lock"]),
 
     # .NET/C#
     (Language.CSHARP, ["*.csproj", "*.sln"]),
-
-    # Python
-    (Language.PYTHON, ["setup.py", "pyproject.toml", "requirements.txt", "Pipfile"]),
 
     # Go
     (Language.GO, ["go.mod", "go.sum"]),
