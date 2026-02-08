@@ -165,9 +165,9 @@ class RalphLoop:
 def main():
     parser = argparse.ArgumentParser(description="Ralph Loop Supervisor")
     parser.add_argument("task", nargs='?', help="The coding task description")
-    parser.add_argument("--verify", default=DEFAULT_VERIFIER,
+    parser.add_argument("--verify", default=None,
                         help="Command to verify success (default: pytest)")
-    parser.add_argument("--agent", default=DEFAULT_AGENT,
+    parser.add_argument("--agent", default=None,
                         help="Agent command template (use {model} for model substitution)")
     parser.add_argument("--models",
                         help="Comma-separated list of models for escalation")
@@ -191,14 +191,44 @@ def main():
                         help="Show execution statistics and exit")
     parser.add_argument("--stats-days", type=int,
                         help="Number of days to include in stats (default: all time)")
+    parser.add_argument("--show-config", action="store_true",
+                        help="Show resolved configuration and exit")
 
     args = parser.parse_args()
+    
+    # Load configuration from agent.yaml
+    config = load_config()
+    
+    # Implement config priority: CLI Args > agent.yaml > Hardcoded Defaults
+    verify_cmd = args.verify or config.get('verify_cmd') or DEFAULT_VERIFIER
+    agent_template = args.agent or config.get('agent_cmd') or DEFAULT_AGENT
+    
+    # Parse models with priority: CLI > config > defaults
+    if args.models:
+        models = [m.strip() for m in args.models.split(',')]
+    elif 'models' in config and config['models']:
+        models = config['models']
+    else:
+        models = None  # Will default in RalphLoop
+    
+    # Handle --show-config flag
+    if args.show_config:
+        print("=== Resolved Configuration ===")
+        print(f"verify_cmd: {verify_cmd}")
+        print(f"agent_cmd: {agent_template}")
+        print(f"models: {models if models else DEFAULT_MODELS}")
+        print(f"test_model: {args.test_model}")
+        print(f"impl_model: {args.impl_model}")
+        print(f"adversary_model: {args.adversary_model}")
+        print(f"max_cost: {args.max_cost}")
+        print(f"max_tokens: {args.max_tokens}")
+        sys.exit(0)
 
     # Handle --self-check command
     if args.self_check:
         from src.verification.self_check import run_self_check
         success = run_self_check(
-            verify_cmd=args.verify,
+            verify_cmd=verify_cmd,
             diff_ref=args.self_check_ref,
             enable_adversarial_review=args.adversarial
         )
@@ -215,13 +245,8 @@ def main():
     if not args.task:
         parser.error("task argument is required (unless using --stats or --self-check)")
 
-    # Parse models list if provided
-    models = None
-    if args.models:
-        models = [m.strip() for m in args.models.split(',')]
-
     loop = RalphLoop(
-        args.agent, args.verify, MAX_RETRIES,
+        agent_template, verify_cmd, MAX_RETRIES,
         models=models,
         test_model=args.test_model,
         impl_model=args.impl_model,
