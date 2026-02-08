@@ -249,6 +249,10 @@ Fix the error and implement correctly. Think step-by-step."""
 
             agent_cmd = build_agent_command(self.agent_cmd_template, full_task, model)
 
+            # Capture HEAD before agent runs (for auto-commit detection)
+            _, pre_head, _ = run_shell("git rev-parse HEAD", ignore_error=True)
+            pre_agent_head = pre_head.strip() if pre_head else None
+
             print(f" [2/5] Unleashing Agent ({model}) [timeout: {self.agent_timeout}s]...")
             try:
                 agent_success, agent_output, _ = run_shell_with_retry(
@@ -268,29 +272,29 @@ Fix the error and implement correctly. Think step-by-step."""
             except BudgetExceededException as e:
                 print(f"\n [!] Budget exceeded: {str(e)}")
                 print(" [!] Reverting changes and aborting execution.")
-                run_shell("git reset --hard HEAD", ignore_error=True)
+                run_shell(f"git reset --hard {pre_agent_head}" if pre_agent_head else "git reset --hard HEAD", ignore_error=True)
                 run_shell("git clean -fd", ignore_error=True)
                 run_shell("git stash pop", ignore_error=True)
                 self._print_cost_summary(cost_tracker, start_time)
                 return False
 
-            if not has_changes():
+            if not has_changes(pre_agent_head):
                 print(" [X] Agent made NO changes to repository!")
                 print("     This likely means the agent failed or couldn't understand the task.")
                 last_error = "Agent produced no output changes. Check if task is clear or agent is working."
 
                 print(" [!] Resetting to clean state for retry...")
-                run_shell("git reset --hard HEAD", ignore_error=True)
+                run_shell(f"git reset --hard {pre_agent_head}" if pre_agent_head else "git reset --hard HEAD", ignore_error=True)
                 run_shell("git clean -fd", ignore_error=True)
                 continue
 
             print(" [3/5] Changes detected:")
-            print(get_diff_summary())
+            print(get_diff_summary(pre_agent_head))
 
             # Check timeout before verification
             if self._check_timeout(start_time):
                 print(f"\n [!] Execution timeout exceeded before verification. Reverting.")
-                run_shell("git reset --hard HEAD", ignore_error=True)
+                run_shell(f"git reset --hard {pre_agent_head}" if pre_agent_head else "git reset --hard HEAD", ignore_error=True)
                 run_shell("git clean -fd", ignore_error=True)
                 run_shell("git stash pop", ignore_error=True)
                 return False
@@ -313,6 +317,13 @@ Fix the error and implement correctly. Think step-by-step."""
                     self._print_cost_summary(cost_tracker, start_time)
                     return True
                 else:
+                    # Agent may have auto-committed — that's still a success
+                    _, current_head, _ = run_shell("git rev-parse HEAD", ignore_error=True)
+                    if current_head and current_head.strip() != pre_agent_head:
+                        print(f"       Agent auto-committed changes (solved by {model})")
+                        run_shell("git stash drop", ignore_error=True)
+                        self._print_cost_summary(cost_tracker, start_time)
+                        return True
                     print(f" [X] Commit failed: {truncate_error(commit_output)}")
                     run_shell("git stash drop", ignore_error=True)
                     self._print_cost_summary(cost_tracker, start_time)
@@ -323,7 +334,7 @@ Fix the error and implement correctly. Think step-by-step."""
                 last_error = output
 
                 print(" [!] Resetting to clean state for retry...")
-                run_shell("git reset --hard HEAD", ignore_error=True)
+                run_shell(f"git reset --hard {pre_agent_head}" if pre_agent_head else "git reset --hard HEAD", ignore_error=True)
                 run_shell("git clean -fd", ignore_error=True)
 
         print(f"\n [!] Task failed after {len(self.models)} model(s). Reverting to start.")

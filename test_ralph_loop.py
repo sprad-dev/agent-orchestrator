@@ -172,7 +172,7 @@ class TestRalphLoop(unittest.TestCase):
         """Test initialization without fallback agents."""
         loop = RalphLoop(task_description="Test")
 
-        self.assertEqual(loop.agent_cmd, "claude {prompt}")
+        self.assertEqual(loop.agent_cmd, "claude -p --dangerously-skip-permissions --model {model} {prompt}")
         self.assertEqual(loop.fallback_agents, [])
 
 

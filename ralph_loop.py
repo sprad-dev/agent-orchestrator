@@ -119,7 +119,7 @@ class RalphLoop:
         max_cost: Optional[float] = None,
         max_tokens: Optional[int] = None,
         supervisor_cmd: str = "./supervisor.py",
-        agent_cmd: str = "claude {prompt}",
+        agent_cmd: str = "claude -p --dangerously-skip-permissions --model {model} {prompt}",
         fallback_agents: Optional[List[str]] = None
     ):
         self.task_description = task_description
@@ -384,8 +384,8 @@ Examples:
     )
     parser.add_argument(
         "--agent",
-        default="claude {prompt}",
-        help="Primary agent command template (default: 'claude {prompt}')"
+        default="claude -p --dangerously-skip-permissions --model {model} {prompt}",
+        help="Primary agent command template (default: 'claude -p --dangerously-skip-permissions --model {model} {prompt}')"
     )
     parser.add_argument(
         "--fallback-agents",

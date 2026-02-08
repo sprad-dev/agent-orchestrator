@@ -18,7 +18,7 @@ from src.shell import run_shell, has_changes, get_diff_summary, get_diff_content
 from src.context import parse_context_files, get_default_context_files, build_static_context
 
 # --- DEFAULTS ---
-DEFAULT_AGENT = "claude {prompt}"
+DEFAULT_AGENT = "claude -p --dangerously-skip-permissions --model {model} {prompt}"
 DEFAULT_VERIFIER = "pytest"
 MAX_RETRIES = 3
 DEFAULT_MODELS = ["claude-4.5-haiku", "claude-4.5-haiku", "claude-4.5-sonnet"]

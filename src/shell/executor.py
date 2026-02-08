@@ -201,22 +201,50 @@ def run_shell_with_retry(
     return success, output, returncode
 
 
-def has_changes() -> bool:
-    """Check if there are any uncommitted changes in the working directory."""
+def has_changes(pre_agent_head: str = None) -> bool:
+    """Check if the agent made any changes (uncommitted or committed).
+    
+    Claude Code in -p --dangerously-skip-permissions mode auto-commits,
+    so we must also check for new commits since the agent started.
+    """
+    # Check uncommitted changes
     success, output, _ = run_shell("git status --porcelain", ignore_error=True)
-    return success and len(output.strip()) > 0
+    if success and len(output.strip()) > 0:
+        return True
+    # Check for new commits since pre_agent_head
+    if pre_agent_head:
+        success, output, _ = run_shell(
+            f"git rev-parse HEAD", ignore_error=True
+        )
+        if success and output.strip() != pre_agent_head:
+            return True
+    return False
 
 
-def get_diff_summary() -> str:
-    """Get a summary of changes made."""
+def get_diff_summary(pre_agent_head: str = None) -> str:
+    """Get a summary of changes made (uncommitted or since pre_agent_head)."""
     success, output, _ = run_shell("git diff --stat", ignore_error=True)
-    return output if success else "Unable to get diff"
+    if success and output.strip():
+        return output
+    if pre_agent_head:
+        success, output, _ = run_shell(
+            f"git diff --stat {pre_agent_head}..HEAD", ignore_error=True
+        )
+        return output if success else "Unable to get diff"
+    return "Unable to get diff"
 
 
-def get_diff_content() -> str:
-    """Get the full diff of current changes."""
+def get_diff_content(pre_agent_head: str = None) -> str:
+    """Get the full diff of current changes (uncommitted or since pre_agent_head)."""
     success, output, _ = run_shell("git diff", ignore_error=True)
-    return output if success else "Unable to get diff"
+    if success and output.strip():
+        return output
+    if pre_agent_head:
+        success, output, _ = run_shell(
+            f"git diff {pre_agent_head}..HEAD", ignore_error=True
+        )
+        return output if success else "Unable to get diff"
+    return "Unable to get diff"
 
 
 def truncate_error(error_text: str, max_length: int = 2000) -> str:
@@ -245,11 +273,20 @@ def truncate_error(error_text: str, max_length: int = 2000) -> str:
     return f"{first_chunk}\n...[truncated {len(error_text) - max_length} chars]...\n{last_chunk}"
 
 
+MODEL_CLI_ALIASES = {
+    "claude-4.5-haiku": "haiku",
+    "claude-4.5-sonnet": "sonnet",
+    "claude-4.5-opus": "opus",
+}
+
+
 def build_agent_command(template: str, prompt: str, model: str) -> str:
     """Build agent command with properly escaped prompt.
 
     This eliminates code duplication across execution strategies by
     centralizing the prompt escaping and template substitution logic.
+    API model names (e.g., claude-4.5-haiku) are mapped to CLI aliases
+    (e.g., haiku) for Claude Code compatibility.
 
     Args:
         template: Agent command template with {prompt} and {model} placeholders
@@ -260,8 +297,9 @@ def build_agent_command(template: str, prompt: str, model: str) -> str:
         Fully constructed agent command string with escaped prompt
 
     Example:
-        >>> build_agent_command("claude {prompt}", "Fix bug", "sonnet")
-        "claude 'Fix bug'"
+        >>> build_agent_command("claude -p --model {model} {prompt}", "Fix bug", "claude-4.5-sonnet")
+        "claude -p --model sonnet 'Fix bug'"
     """
     safe_prompt = shlex.quote(prompt)
-    return template.replace("{prompt}", safe_prompt).replace("{model}", model)
+    cli_model = MODEL_CLI_ALIASES.get(model, model)
+    return template.replace("{prompt}", safe_prompt).replace("{model}", cli_model)
